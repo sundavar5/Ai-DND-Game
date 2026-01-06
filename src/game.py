@@ -101,8 +101,10 @@ class Game:
                 return str(e)
 
         # Story Interaction
-        response = self.story_teller.next_turn(action)
-        return f"DM: {response}"
+        if self.story_teller:
+            response = self.story_teller.next_turn(action)
+            return f"DM: {response}"
+        return "Game error: StoryTeller not initialized."
 
     def _handle_combat_turn(self, action):
         log = []
