@@ -86,7 +86,8 @@ class SetupFrame(ctk.CTkFrame):
         self.model_menu.pack(fill="x", padx=20, pady=(0, 20))
 
         # Connect Button
-        ctk.CTkButton(self.center_frame, text="Connect & Start", command=self.connect).pack(pady=20)
+        ctk.CTkButton(self.center_frame, text="Connect & Start", command=self.connect).pack(pady=(20, 10))
+        ctk.CTkButton(self.center_frame, text="Load Game", command=self.load_game).pack(pady=10)
 
         # Initialize visibility
         self.update_options("DeepSeek")
@@ -116,7 +117,7 @@ class SetupFrame(ctk.CTkFrame):
         self.base_url_label.pack_forget()
         self.base_url_entry.pack_forget()
 
-    def connect(self):
+    def connect(self, target_frame="char_creation"):
         provider = self.provider_var.get()
         api_key = self.api_key_entry.get().strip()
         model = self.model_var.get().strip()
@@ -128,16 +129,42 @@ class SetupFrame(ctk.CTkFrame):
             base_url = self.base_url_entry.get().strip()
 
         if not api_key:
-            # Maybe they have env var set?
             if not os.getenv("DEEPSEEK_API_KEY") and not os.getenv("OPENAI_API_KEY"):
-                 pass # Allow empty if they know what they are doing (env vars), but warn?
+                 pass
 
         self.app.api_key = api_key
         self.app.base_url = base_url
         self.app.model_name = model
 
-        # Proceed to Char Creation
-        self.app.show_char_creation()
+        # Init Game Object here? No, Game is init later.
+        # But for Load Game we need Game object.
+
+        if target_frame == "char_creation":
+            self.app.show_char_creation()
+        elif target_frame == "load_game":
+            self.perform_load()
+
+    def load_game(self):
+        self.connect(target_frame="load_game")
+
+    def perform_load(self):
+        try:
+            self.app.game = Game(
+                api_key=self.app.api_key,
+                base_url=self.app.base_url,
+                model_name=self.app.model_name
+            )
+            msg = self.app.game.load_game() # Loads savegame.json by default
+
+            if "not found" in msg.lower():
+                messagebox.showerror("Error", msg)
+                return
+
+            self.app.show_game_screen()
+            self.app.after(100, lambda: self.app.current_frame.log_message(msg))
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load: {e}")
 
 
 class CharacterCreationFrame(ctk.CTkFrame):
@@ -202,7 +229,7 @@ class CharacterCreationFrame(ctk.CTkFrame):
     def init_campaign_async(self, char, setting):
         msg = self.app.game.initialize_campaign(char, setting)
         # Update UI from main thread
-        self.app.current_frame.log_message(msg)
+        self.app.after(0, self.app.current_frame.log_message, msg)
 
 
 class GameFrame(ctk.CTkFrame):

@@ -13,14 +13,13 @@ def main():
     # For now, just launch GUI.
 
     try:
-        root = tk.Tk()
-    except tk.TclError:
-        print("Error: No display found. Cannot launch GUI.")
-        print("Please run in a desktop environment.")
+        app = AI_RPG_GUI()
+    except Exception as e:
+        print(f"Error launching GUI: {e}")
+        print("Please ensure you are running in a desktop environment with a display.")
         return
 
-    app = AI_RPG_GUI(root)
-    root.mainloop()
+    app.mainloop()
 
 if __name__ == "__main__":
     main()
