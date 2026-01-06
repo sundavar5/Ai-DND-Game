@@ -14,8 +14,6 @@ class TestCharacter(unittest.TestCase):
         self.assertEqual(char.race, "Human")
         self.assertEqual(char.char_class, "Fighter")
         self.assertTrue(char.max_hp > 0)
-        # Check stat bonuses
-        # Human has +1 to all
         self.assertTrue(all(v >= 0 for v in char.stats.values()))
 
     def test_serialization(self):
@@ -35,25 +33,56 @@ class TestDice(unittest.TestCase):
         val, _ = Dice.roll("invalid")
         self.assertEqual(val, 0)
 
-class TestGame(unittest.TestCase):
+class TestGameRefactored(unittest.TestCase):
     @patch('src.story_teller.OpenAI')
-    @patch('builtins.input', side_effect=['TestWorld', '/quit', 'y'])
-    @patch('src.models.character.Character.create_character')
-    def test_new_game_flow(self, mock_create_char, mock_input, mock_openai):
-        mock_char = Character("Hero", "Human", "Fighter")
-        mock_create_char.return_value = mock_char
-
+    def test_campaign_flow(self, mock_openai):
+        # Mock OpenAI
         mock_client = MagicMock()
         mock_openai.return_value = mock_client
         mock_completion = MagicMock()
-        mock_completion.choices[0].message.content = "Welcome."
+        mock_completion.choices[0].message.content = "Welcome to the dungeon."
         mock_client.chat.completions.create.return_value = mock_completion
 
-        game = Game("fake-key")
-        game.new_game()
-        game.run()
+        # Init Game
+        game = Game(api_key="fake", base_url="fake", model_name="fake-model")
+        char = Character("Hero", "Human", "Fighter")
 
-        self.assertTrue(mock_create_char.called)
+        # Start Campaign
+        res = game.initialize_campaign(char, "Dark Fantasy")
+        self.assertIn("Campaign Started", res)
+        self.assertTrue(game.is_running)
+
+        # Test Command
+        res = game.process_action("/inventory")
+        self.assertIn("Inventory", res)
+
+        # Test Story Interaction
+        res = game.process_action("Look around")
+        self.assertIn("DM:", res)
+
+    def test_combat_flow(self):
+        # We can test combat logic without mocking OpenAI since /fight doesn't call it immediately
+        # unless we need story response? No, process_action handles /fight locally first.
+
+        game = Game(api_key="fake")
+        char = Character("Hero", "Human", "Fighter")
+        game.character = char
+        game.is_running = True
+
+        # Start Fight
+        res = game.process_action("/fight goblin")
+        # Depending on initiative, output varies, but should contain "Combat Started"
+        self.assertIn("Combat Started", res)
+        self.assertTrue(game.combat.is_active)
+
+        # Attack
+        res = game.process_action("attack")
+        self.assertIn("hit", res.lower()) # either you hit or miss, or they hit/miss
+
+        # Flee
+        res = game.process_action("flee")
+        self.assertIn("flee", res)
+        self.assertIsNone(game.combat)
 
 if __name__ == '__main__':
     unittest.main()
