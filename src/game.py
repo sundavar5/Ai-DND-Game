@@ -1,7 +1,9 @@
 import json
 import os
-from .character import Character
+from .models.character import Character
 from .story_teller import StoryTeller
+from .mechanics.combat import Combat
+from .data.items import ITEMS
 
 class Game:
     def __init__(self, api_key, base_url=None):
@@ -9,6 +11,7 @@ class Game:
         self.base_url = base_url
         self.character = None
         self.story_teller = None
+        self.combat = None
         self.is_running = False
 
     def new_game(self):
@@ -54,6 +57,10 @@ class Game:
 
     def run(self):
         while self.is_running:
+            if self.combat and self.combat.is_active:
+                self._handle_combat_loop()
+                continue
+
             action = input("\n> ")
 
             if action.lower() == "/quit":
@@ -71,8 +78,48 @@ class Game:
                 print(self.character)
                 continue
             elif action.lower() == "/help":
-                print("Commands: /quit, /save, /inventory, /sheet, /help")
+                print("Commands: /quit, /save, /inventory, /sheet, /help, /equip <item>, /fight <monster>")
+                continue
+            elif action.lower().startswith("/equip"):
+                item_name = action[7:].strip()
+                if self.character.equip(item_name):
+                    print(f"Equipped {item_name}.")
+                else:
+                    print("Item not found in inventory.")
+                continue
+            elif action.lower().startswith("/fight"):
+                monster_name = action[7:].strip()
+                try:
+                    self.combat = Combat(self.character, monster_name)
+                    print(f"\n--- Combat Started: {self.character.name} vs {monster_name.capitalize()} ---")
+                    is_player_turn = self.combat.start_combat()
+                    if is_player_turn:
+                        print("You won initiative!")
+                    else:
+                        print(f"{monster_name.capitalize()} won initiative!")
+                        print(self.combat.monster_turn())
+                except ValueError as e:
+                    print(e)
                 continue
 
             response = self.story_teller.next_turn(action)
             print(f"\nDM: {response}")
+
+    def _handle_combat_loop(self):
+        print(f"\nHP: {self.character.current_hp}/{self.character.max_hp}")
+        action = input("(Combat) > ")
+
+        if action.lower() == "attack":
+            # Simplified attack
+            hit, msg = self.combat.player_attack()
+            print(msg)
+            if self.combat.is_active:
+                 print(self.combat.monster_turn())
+            else:
+                 print("Combat ended. You are victorious!")
+                 self.combat = None
+        elif action.lower() == "flee":
+            print("You flee from combat!")
+            self.combat = None
+        else:
+            print("Combat options: attack, flee")
