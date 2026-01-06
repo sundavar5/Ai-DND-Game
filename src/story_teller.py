@@ -2,11 +2,12 @@ from openai import OpenAI
 import os
 
 class StoryTeller:
-    def __init__(self, api_key, base_url=None):
+    def __init__(self, api_key, base_url=None, model_name="gpt-3.5-turbo"):
         if base_url:
             self.client = OpenAI(api_key=api_key, base_url=base_url)
         else:
             self.client = OpenAI(api_key=api_key)
+        self.model_name = model_name
         self.history = []
 
     def start_campaign(self, character, setting_description):
@@ -37,7 +38,7 @@ class StoryTeller:
     def _get_response(self):
         try:
             completion = self.client.chat.completions.create(
-                model="gpt-3.5-turbo", # Default to a widely available model
+                model=self.model_name,
                 messages=self.history
             )
             response = completion.choices[0].message.content
