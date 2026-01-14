@@ -4,751 +4,3785 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DeepSeek D&D RPG</title>
+
+    <!--
+    ========================================================================
+    DEEPSEEK D&D RPG - Single File Client
+    ========================================================================
+    - This file is split into numbered sections (1–11) that roughly match:
+        1. Core HTML structure & CSS
+        2. Game engine architecture (high-level data + helpers)
+        3. Character system
+        4. World & time system
+        5. Event / encounter engine (AI calls, openers, turns)
+        6. UI layout (screens, cards, log, inputs)
+        7. Combat framework (high-level flags + enemies, DM-driven)
+        8. Inventory & item architecture
+        9. Quest engine (dialogue stub-ready)
+        10. Dice + skill checks
+        11. State management (localStorage, import/export, bootstrapping)
+
+    - IMPORTANT FOR AI:
+      * Do NOT change element IDs in the HTML unless you also update all JS
+        references to those IDs.
+      * When extending functionality, prefer adding code in the correct section
+        instead of rewriting everything.
+      * Keep the DeepSeek JSON protocol backwards-compatible:
+          - You may ADD optional fields to the JSON schema.
+          - Do NOT remove or rename existing ones without also updating the
+            prompts and parsing logic.
+      * Avoid adding functions into gameData (functions can't be serialized to
+        JSON cleanly for saving).
+
+    - If you add new systems:
+        - Add a new SECTION comment (e.g. "SECTION 12: Map / Navigation").
+        - Document how it should be extended by future AIs.
+
+    ========================================================================
+    SECTION 1: CORE HTML STRUCTURE & CSS (UI FRAMEWORK)
+    ========================================================================
+    - Claude: Treat this as the visual framework. You may tweak styles, but try
+      to keep the overall layout (two main columns: character/left, log/right).
+    - If you add new panels (e.g. Quest log, Roll history), follow the same
+      "card" visual language.
+    -->
+
     <style>
-        :root {
-            --bg-color: #0f0f0f;
-            --panel-bg: #252525;
-            --text-color: #f0f0f0;
-            --accent-color: #ffd700; /* Brighter Gold */
-            --accent-hover: #e6c200;
-            --border-color: #444;
-            --input-bg: #333333;
-            --font-main: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            --font-serif: 'Georgia', serif;
-        }
+/* Reset and Base Styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
 
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
+:root {
+    --slate-50: #f8fafc;
+    --slate-100: #f1f5f9;
+    --slate-200: #e2e8f0;
+    --slate-300: #cbd5e1;
+    --slate-400: #94a3b8;
+    --slate-500: #64748b;
+    --slate-600: #475569;
+    --slate-700: #334155;
+    --slate-800: #1e293b;
+    --slate-900: #0f172a;
 
-        body {
-            font-family: var(--font-main);
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
+    --blue-400: #60a5fa;
+    --blue-500: #3b82f6;
+    --blue-600: #2563eb;
+    --blue-700: #1d4ed8;
+    --blue-900: #1e3a8a;
 
-        /* Views */
-        .view {
-            display: none;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100%;
-            width: 100%;
-            padding: 20px;
-            animation: fadeIn 0.5s ease-in-out;
-        }
+    --red-400: #f87171;
+    --red-500: #ef4444;
+    --red-600: #dc2626;
 
-        .view.active {
-            display: flex;
-        }
+    --purple-400: #c084fc;
+    --purple-500: #a855f7;
+    --purple-900: #581c87;
 
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
+    --green-400: #4ade80;
+    --green-500: #22c55e;
 
-        /* Components */
-        h1, h2, h3 {
-            color: var(--accent-color);
-            margin-bottom: 20px;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-        }
+    --yellow-400: #facc15;
+    --orange-400: #fb923c;
+}
 
-        .card {
-            background-color: var(--panel-bg);
-            padding: 30px;
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-            max-width: 500px;
-            width: 100%;
-            text-align: center;
-        }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: var(--slate-900);
+    color: white;
+    line-height: 1.6;
+}
 
-        .input-group {
-            margin-bottom: 20px;
-            text-align: left;
-            width: 100%;
-        }
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 1rem;
+}
 
-        label {
-            display: block;
-            margin-bottom: 8px;
-            font-size: 0.9rem;
-            color: #ccc;
-            font-weight: 500;
-        }
+.hidden {
+    display: none !important;
+}
 
-        input, select, textarea {
-            width: 100%;
-            padding: 12px;
-            background-color: var(--input-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 4px;
-            color: #fff;
-            font-size: 1rem;
-            outline: none;
-            transition: border-color 0.3s, background-color 0.3s;
-        }
+.card {
+    background-color: var(--slate-800);
+    border: 1px solid var(--slate-700);
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+}
 
-        input::placeholder, textarea::placeholder {
-            color: #888;
-        }
+.grid {
+    display: grid;
+    gap: 1rem;
+}
 
-        input:focus, select:focus, textarea:focus {
-            border-color: var(--accent-color);
-            background-color: #3a3a3a;
-        }
+.grid-cols-2 {
+    grid-template-columns: repeat(2, 1fr);
+}
 
-        button {
-            background-color: var(--accent-color);
-            color: #000;
-            padding: 12px 24px;
-            border: none;
-            border-radius: 4px;
-            font-size: 1rem;
-            font-weight: bold;
-            cursor: pointer;
-            transition: background-color 0.3s, transform 0.1s;
-            text-transform: uppercase;
-        }
+.grid-cols-3 {
+    grid-template-columns: repeat(3, 1fr);
+}
 
-        button:hover {
-            background-color: var(--accent-hover);
-        }
+@media (min-width: 1024px) {
+    .lg-grid-cols-3 {
+        grid-template-columns: 1fr 2fr;
+    }
+}
 
-        button:active {
-            transform: scale(0.98);
-        }
+.stat-box {
+    background-color: var(--slate-700);
+    border: 1px solid var(--slate-600);
+    border-radius: 0.5rem;
+    padding: 0.75rem;
+    text-align: center;
+}
 
-        button.secondary {
-            background-color: transparent;
-            border: 1px solid var(--accent-color);
-            color: var(--accent-color);
-            margin-top: 10px;
-        }
+.stat-label {
+    font-size: 0.75rem;
+    color: var(--slate-400);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.25rem;
+}
 
-        button.secondary:hover {
-            background-color: rgba(212, 175, 55, 0.1);
-        }
+.stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: white;
+}
 
-        .warning {
-            color: #ff6b6b;
-            font-size: 0.85rem;
-            margin-top: 10px;
-            border: 1px solid #ff6b6b;
-            padding: 10px;
-            background: rgba(255, 107, 107, 0.1);
-            border-radius: 4px;
-        }
+.input-group {
+    margin-bottom: 1rem;
+}
 
-        /* Game Layout */
-        #game-view {
-            flex-direction: row;
-            padding: 0;
-            align-items: stretch;
-        }
+.input-group label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--slate-300);
+    margin-bottom: 0.5rem;
+}
 
-        #sidebar {
-            width: 300px;
-            background-color: var(--panel-bg);
-            border-right: 1px solid var(--border-color);
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            overflow-y: auto;
-        }
+.input-group input,
+.input-group select,
+.input-group textarea {
+    width: 100%;
+    background-color: var(--slate-700);
+    border: 1px solid var(--slate-600);
+    color: white;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+}
 
-        #main-area {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            background-image: radial-gradient(circle at center, #1a1a1a 0%, #121212 100%);
-        }
+.input-group input:focus,
+.input-group select:focus,
+.input-group textarea:focus {
+    outline: none;
+    border-color: var(--blue-500);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
 
-        /* Chat Log */
-        #chat-container {
-            flex: 1;
-            padding: 40px;
-            overflow-y: auto;
-            scroll-behavior: smooth;
-        }
+.btn {
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 0.375rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 0.875rem;
+}
 
-        .message {
-            margin-bottom: 20px;
-            max-width: 800px;
-            margin-left: auto;
-            margin-right: auto;
-            line-height: 1.6;
-        }
+.btn-primary {
+    background-color: var(--blue-600);
+    color: white;
+}
 
-        .message.system {
-            color: #888;
-            font-style: italic;
-            text-align: center;
-            font-size: 0.9rem;
-        }
+.btn-primary:hover:not(:disabled) {
+    background-color: var(--blue-700);
+}
 
-        .message.dm {
-            font-family: var(--font-serif);
-            font-size: 1.1rem;
-            color: #ddd;
-        }
+.btn-secondary {
+    background-color: var(--slate-700);
+    color: white;
+    border: 1px solid var(--slate-600);
+}
 
-        .message.dm strong {
-            color: var(--accent-color);
-        }
+.btn-secondary:hover:not(:disabled) {
+    background-color: var(--slate-600);
+}
 
-        .message.user {
-            background-color: rgba(212, 175, 55, 0.1);
-            padding: 15px;
-            border-left: 3px solid var(--accent-color);
-            color: #fff;
-        }
+.btn-danger {
+    background-color: var(--red-600);
+    color: white;
+}
 
-        /* Input Area */
-        #input-area {
-            padding: 20px;
-            background-color: var(--panel-bg);
-            border-top: 1px solid var(--border-color);
-            display: flex;
-            gap: 10px;
-            justify-content: center;
-        }
+.btn-danger:hover:not(:disabled) {
+    background-color: var(--red-500);
+}
 
-        #command-input {
-            max-width: 800px;
-            flex: 1;
-        }
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
 
-        /* Sidebar Stats */
-        .stat-block {
-            margin-bottom: 20px;
-            border-bottom: 1px solid #333;
-            padding-bottom: 10px;
-        }
+.message-user {
+    background-color: rgba(30, 58, 138, 0.3);
+    border-left: 3px solid var(--blue-500);
+    padding: 0.75rem;
+    border-radius: 0.5rem;
+    margin-bottom: 1rem;
+}
 
-        .stat-row {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 5px;
-            font-size: 0.9rem;
-        }
+.message-assistant {
+    background-color: rgba(88, 28, 135, 0.3);
+    border-left: 3px solid var(--purple-500);
+    padding: 0.75rem;
+    border-radius: 0.5rem;
+    margin-bottom: 1rem;
+}
 
-        .hp-bar-container {
-            width: 100%;
-            height: 10px;
-            background-color: #333;
-            border-radius: 5px;
-            margin-top: 5px;
-            overflow: hidden;
-        }
+.message-system {
+    background-color: rgba(100, 116, 139, 0.2);
+    border-left: 3px solid var(--slate-400);
+    padding: 0.75rem;
+    border-radius: 0.5rem;
+    margin-bottom: 1rem;
+}
 
-        .hp-bar-fill {
-            height: 100%;
-            background-color: #ff4d4d;
-            width: 100%;
-            transition: width 0.3s;
-        }
+.message-role {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--slate-400);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+}
 
-        /* Tabs */
-        .tabs {
-            display: flex;
-            margin-bottom: 10px;
-        }
+.message-content {
+    color: white;
+}
 
-        .tab {
-            flex: 1;
-            background: none;
-            border: none;
-            border-bottom: 2px solid transparent;
-            color: #888;
-            cursor: pointer;
-            padding: 5px;
-            font-size: 0.8rem;
-        }
+.inventory-item {
+    background-color: var(--slate-700);
+    border-radius: 0.5rem;
+    border: 1px solid var(--slate-600);
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 0.5rem;
+    transition: all 0.2s;
+}
 
-        .tab.active {
-            color: var(--accent-color);
-            border-bottom-color: var(--accent-color);
-        }
+.inventory-item:hover {
+    background-color: var(--slate-600);
+    border-color: var(--slate-500);
+}
 
-        .tab-content {
-            display: none;
-            font-size: 0.9rem;
-        }
+.rarity-common {
+    border-color: var(--slate-500);
+}
 
-        .tab-content.active {
-            display: block;
-        }
+.rarity-uncommon {
+    border-color: var(--green-500);
+}
 
-        /* Loading Spinner */
-        .spinner {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(255,255,255,.3);
-            border-radius: 50%;
-            border-top-color: var(--accent-color);
-            animation: spin 1s ease-in-out infinite;
-            margin-left: 10px;
-            vertical-align: middle;
-            display: none;
-        }
+.rarity-rare {
+    border-color: var(--blue-500);
+}
 
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
+.rarity-veryrare {
+    border-color: var(--purple-500);
+}
 
+.rarity-legendary {
+    border-color: var(--orange-400);
+}
+
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.75);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background-color: var(--slate-800);
+    border: 1px solid var(--slate-700);
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    max-width: 500px;
+    width: 90%;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--slate-700);
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    color: var(--slate-400);
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.25rem;
+}
+
+.modal-close:hover {
+    background-color: var(--slate-700);
+    color: white;
+}
+
+.property-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--slate-700);
+}
+
+.property-label {
+    color: var(--slate-400);
+    font-size: 0.875rem;
+}
+
+.property-value {
+    color: white;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid var(--slate-600);
+    border-top-color: var(--purple-500);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 1rem auto;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes slideOut {
+    from {
+        transform: translateX(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+}
+
+.log-container {
+    height: 400px;
+    overflow-y: auto;
+    margin-bottom: 1rem;
+    padding-right: 0.5rem;
+}
+
+.flex {
+    display: flex;
+}
+
+.gap-2 {
+    gap: 0.5rem;
+}
+
+.flex-wrap {
+    flex-wrap: wrap;
+}
+
+.mb-4 {
+    margin-bottom: 1rem;
+}
+
+.text-center {
+    text-align: center;
+}
+
+.color-red { color: var(--red-400); }
+.color-blue { color: var(--blue-400); }
+.color-green { color: var(--green-400); }
+.color-yellow { color: var(--yellow-400); }
+.color-purple { color: var(--purple-400); }
+.color-orange { color: var(--orange-400); }
+.color-white { color: white; }
+.color-gray { color: var(--slate-400); }
+.text-bold { font-weight: 700; }
+.text-italic { font-style: italic; }
+.text-underline { text-decoration: underline; }
+
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--slate-800);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--slate-600);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--slate-500);
+}
+
+.text-sm {
+    font-size: 0.875rem;
+}
+
+.text-xs {
+    font-size: 0.75rem;
+}
+
+.enemy-card {
+    background-color: var(--slate-700);
+    border: 1px solid var(--red-500);
+    border-radius: 0.5rem;
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+.badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.badge-combat {
+    background-color: var(--red-500);
+}
+
+.badge-turn {
+    background-color: var(--yellow-400);
+    color: var(--slate-900);
+}
+
+.badge-rarity {
+    background-color: var(--slate-600);
+    text-transform: capitalize;
+}
+
+.quest-item {
+    background-color: var(--slate-700);
+    border-radius: 0.5rem;
+    border: 1px solid var(--slate-600);
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+/* scrollbars */
+::-webkit-scrollbar-thumb:hover {
+    background: var(--slate-500);
+}
+
+/* Point Buy System Styles */
+.point-buy-container {
+    background-color: var(--slate-700);
+    border: 1px solid var(--slate-600);
+    border-radius: 0.5rem;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.point-buy-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--slate-600);
+}
+
+.points-remaining {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--blue-400);
+}
+
+.stat-allocator {
+    display: grid;
+    grid-template-columns: 1fr 2fr 1fr;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+    padding: 0.5rem;
+    background-color: var(--slate-800);
+    border-radius: 0.375rem;
+}
+
+.stat-name {
+    font-weight: 500;
+    color: var(--slate-300);
+    text-transform: uppercase;
+    font-size: 0.875rem;
+}
+
+.stat-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    justify-content: center;
+}
+
+.stat-btn {
+    width: 30px;
+    height: 30px;
+    border: none;
+    border-radius: 0.25rem;
+    background-color: var(--blue-600);
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 1rem;
+}
+
+.stat-btn:hover:not(:disabled) {
+    background-color: var(--blue-700);
+}
+
+.stat-btn:disabled {
+    background-color: var(--slate-600);
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.stat-display {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: white;
+    min-width: 30px;
+    text-align: center;
+}
+
+.stat-modifier {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--slate-400);
+    text-align: right;
+}
+
+.save-menu {
+    position: absolute;
+    right: 0;
+    top: 100%;
+    margin-top: 0.5rem;
+    background-color: var(--slate-800);
+    border: 1px solid var(--slate-700);
+    border-radius: 0.5rem;
+    padding: 0.5rem;
+    min-width: 200px;
+    z-index: 100;
+}
+
+.save-menu button {
+    width: 100%;
+    text-align: left;
+    padding: 0.5rem 1rem;
+    border: none;
+    background: none;
+    color: white;
+    cursor: pointer;
+    border-radius: 0.25rem;
+    transition: background-color 0.2s;
+}
+
+.save-menu button:hover {
+    background-color: var(--slate-700);
+}
+
+/* Spoiler text styling */
+.spoiler-text {
+    background-color: var(--slate-400);
+    color: var(--slate-400);
+    cursor: pointer;
+    transition: color 0.3s ease;
+}
+
+.spoiler-text:hover {
+    color: white;
+}
+
+/* Dice roll animation */
+@keyframes diceRoll {
+    0%, 100% { transform: rotate(0deg); }
+    25% { transform: rotate(90deg); }
+    50% { transform: rotate(180deg); }
+    75% { transform: rotate(270deg); }
+}
+
+.dice-rolling {
+    display: inline-block;
+    animation: diceRoll 0.5s ease-in-out;
+}
+
+/* Auto-save indicator */
+.auto-save-indicator {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    padding: 0.5rem 1rem;
+    background-color: var(--green-500);
+    color: white;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    z-index: 1000;
+    pointer-events: none;
+}
+
+.auto-save-indicator.show {
+    opacity: 1;
+}
+
+/* Search box styling */
+.search-box {
+    width: 100%;
+    padding: 0.5rem;
+    margin-bottom: 0.75rem;
+    background-color: var(--slate-700);
+    border: 1px solid var(--slate-600);
+    border-radius: 0.375rem;
+    color: white;
+    font-size: 0.875rem;
+}
+
+.search-box:focus {
+    outline: none;
+    border-color: var(--blue-500);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Keyboard shortcut hint */
+.keyboard-hint {
+    font-size: 0.75rem;
+    color: var(--slate-400);
+    margin-top: 0.5rem;
+}
+
+/* Highlight search results */
+.search-highlight {
+    background-color: var(--yellow-400);
+    color: var(--slate-900);
+    padding: 0.125rem 0.25rem;
+    border-radius: 0.25rem;
+}
+
+/* Better focus indicators for accessibility */
+button:focus,
+input:focus,
+select:focus,
+textarea:focus {
+    outline: 2px solid var(--blue-500);
+    outline-offset: 2px;
+}
+
+/* Skip to main content link for accessibility */
+.skip-link {
+    position: absolute;
+    top: -40px;
+    left: 0;
+    background: var(--blue-600);
+    color: white;
+    padding: 8px;
+    text-decoration: none;
+    z-index: 100;
+}
+
+.skip-link:focus {
+    top: 0;
+}
     </style>
 </head>
 <body>
+    <!-- Accessibility: Skip to main content -->
+    <a href="#gameScreen" class="skip-link">Skip to main content</a>
 
-    <!-- SETUP VIEW -->
-    <div id="setup-view" class="view active">
-        <div class="card">
-            <h1>DeepSeek D&D RPG</h1>
-            <p style="margin-bottom: 20px; color: #888;">An AI-Powered Text Adventure</p>
-
-            <div class="input-group">
-                <label for="api-key">DeepSeek API Key</label>
-                <input type="password" id="api-key" placeholder="sk-...">
-            </div>
-
-            <div class="input-group">
-                <label for="model-select">Model</label>
-                <select id="model-select">
-                    <option value="deepseek-chat">deepseek-chat (V3)</option>
-                    <option value="deepseek-reasoner">deepseek-reasoner (R1)</option>
-                </select>
-            </div>
-
-            <div class="warning">
-                <strong>Notice:</strong> Only DeepSeek API is supported.
-                <br>This application runs entirely in your browser.
-            </div>
-
-            <button onclick="app.connect()">Enter World</button>
-        </div>
+    <!-- Auto-save indicator -->
+    <div id="autoSaveIndicator" class="auto-save-indicator">
+        ✓ Game auto-saved
     </div>
 
-    <!-- CHARACTER CREATION VIEW -->
-    <div id="char-creation-view" class="view">
-        <div class="card" style="max-width: 600px;">
-            <h2>Create Your Hero</h2>
+    <!--
+    ========================================================================
+    SECTION 6: UI LAYOUT – SCREENS & CARDS
+    ========================================================================
+    Claude:
+      - The structure below defines 3 main screens:
+        1) API Setup
+        2) Character Creation
+        3) Main Game
+      - The main game is split into:
+          * Left: Character sheet + currency + inventory + quests
+          * Right: Location, enemies, log, action input
+      - Any new UI panels should follow the same "card + heading" style.
+    -->
 
-            <div class="input-group">
-                <label for="char-name">Character Name</label>
-                <input type="text" id="char-name" placeholder="e.g. Thorin Oakenshield">
+    <!-- API Setup Screen -->
+    <div id="apiSetup" class="container" style="min-height: 100vh; display: flex; align-items: center; justify-content: center;">
+        <div class="card" style="max-width: 500px; width: 100%;">
+            <h1 style="font-size: 1.5rem; font-weight: bold; margin-bottom: 1.5rem; text-align: center; color: var(--blue-400);">DeepSeek D&D RPG</h1>
+            <p style="color: var(--slate-300); margin-bottom: 1.5rem; text-align: center;">
+                Enter your DeepSeek API credentials to begin your adventure.
+            </p>
+
+            <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid var(--blue-500); padding: 10px; border-radius: 4px; margin-bottom: 20px; font-size: 0.9rem;">
+                <strong>Note:</strong> This application is optimized for the DeepSeek V3 and R1 models.
             </div>
 
-            <div style="display: flex; gap: 20px;">
+            <form id="apiForm">
                 <div class="input-group">
-                    <label for="char-race">Race</label>
-                    <select id="char-race" onchange="app.updatePreview()">
-                        <!-- Populated by JS -->
+                    <label>DeepSeek API Key</label>
+                    <input type="password" id="apiKey" placeholder="sk-..." required>
+                </div>
+
+                <div class="input-group hidden">
+                    <label>Base URL</label>
+                    <input type="text" id="baseURL" value="https://api.deepseek.com" readonly>
+                </div>
+
+                <div class="input-group">
+                    <label>Model</label>
+                    <select id="model">
+                        <option value="deepseek-chat">deepseek-chat (V3)</option>
+                        <option value="deepseek-reasoner">deepseek-reasoner (R1)</option>
                     </select>
                 </div>
+
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Start Adventure</button>
+            </form>
+
+            <p style="font-size: 0.75rem; color: var(--slate-400); margin-top: 1rem; text-align: center;">
+                Your API key is stored locally and never sent anywhere except to your configured API endpoint.
+            </p>
+        </div>
+    </div>
+
+    <!-- Character Creation Screen -->
+    <div id="characterCreation" class="container hidden" style="min-height: 100vh; padding: 2rem 1rem;">
+        <div class="card" style="max-width: 700px; margin: 0 auto;">
+            <h1 style="font-size: 1.5rem; font-weight: bold; margin-bottom: 1.5rem; text-align: center;">Create Your Character</h1>
+
+            <form id="characterForm">
                 <div class="input-group">
-                    <label for="char-class">Class</label>
-                    <select id="char-class" onchange="app.updatePreview()">
-                        <!-- Populated by JS -->
+                    <label>Character Name</label>
+                    <input type="text" id="charName" placeholder="Enter character name" required>
+                </div>
+
+                <div class="grid grid-cols-2">
+                    <div class="input-group">
+                        <label>Race</label>
+                        <select id="charRace">
+                            <option>Human</option>
+                            <option>Elf</option>
+                            <option>Dwarf</option>
+                            <option>Halfling</option>
+                            <option>Dragonborn</option>
+                            <option>Tiefling</option>
+                            <option>Half-Elf</option>
+                            <option>Half-Orc</option>
+                        </select>
+                    </div>
+
+                    <div class="input-group">
+                        <label>Class</label>
+                        <select id="charClass">
+                            <option>Fighter</option>
+                            <option>Wizard</option>
+                            <option>Rogue</option>
+                            <option>Cleric</option>
+                            <option>Ranger</option>
+                            <option>Paladin</option>
+                            <option>Barbarian</option>
+                            <option>Bard</option>
+                            <option>Warlock</option>
+                            <option>Sorcerer</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <label>Starting Level</label>
+                    <select id="charLevel">
+                        <option value="1">Level 1</option>
+                        <option value="2">Level 2</option>
+                        <option value="3">Level 3</option>
+                        <option value="4">Level 4</option>
+                        <option value="5">Level 5</option>
+                        <option value="6">Level 6</option>
+                        <option value="7">Level 7</option>
+                        <option value="8">Level 8</option>
+                        <option value="9">Level 9</option>
+                        <option value="10">Level 10</option>
                     </select>
                 </div>
-            </div>
 
-            <div class="input-group" style="background: #252525; padding: 15px; border-radius: 4px; font-size: 0.9rem; text-align: left;">
-                <div id="preview-stats">
-                    <!-- Populated by JS -->
+                <!-- Point Buy System -->
+                <div class="point-buy-container">
+                    <div class="point-buy-header">
+                        <h3 style="font-size: 1rem; font-weight: 600; color: var(--slate-300);">Ability Scores</h3>
+                        <div class="points-remaining">
+                            <span>Points: </span><span id="pointsRemaining">27</span>
+                        </div>
+                    </div>
+                    <p style="font-size: 0.75rem; color: var(--slate-400); margin-bottom: 1rem;">
+                        Allocate 27 points across your ability scores. Scores range from 8 to 15.
+                    </p>
+
+                    <div id="statAllocators">
+                        <!-- STR -->
+                        <div class="stat-allocator">
+                            <div class="stat-name">STR</div>
+                            <div class="stat-controls">
+                                <button type="button" class="stat-btn" data-stat="strength" data-action="decrease">−</button>
+                                <span class="stat-display" id="strength-display">8</span>
+                                <button type="button" class="stat-btn" data-stat="strength" data-action="increase">+</button>
+                            </div>
+                            <div class="stat-modifier" id="strength-modifier">+0</div>
+                        </div>
+
+                        <!-- DEX -->
+                        <div class="stat-allocator">
+                            <div class="stat-name">DEX</div>
+                            <div class="stat-controls">
+                                <button type="button" class="stat-btn" data-stat="dexterity" data-action="decrease">−</button>
+                                <span class="stat-display" id="dexterity-display">8</span>
+                                <button type="button" class="stat-btn" data-stat="dexterity" data-action="increase">+</button>
+                            </div>
+                            <div class="stat-modifier" id="dexterity-modifier">+0</div>
+                        </div>
+
+                        <!-- CON -->
+                        <div class="stat-allocator">
+                            <div class="stat-name">CON</div>
+                            <div class="stat-controls">
+                                <button type="button" class="stat-btn" data-stat="constitution" data-action="decrease">−</button>
+                                <span class="stat-display" id="constitution-display">8</span>
+                                <button type="button" class="stat-btn" data-stat="constitution" data-action="increase">+</button>
+                            </div>
+                            <div class="stat-modifier" id="constitution-modifier">+0</div>
+                        </div>
+
+                        <!-- INT -->
+                        <div class="stat-allocator">
+                            <div class="stat-name">INT</div>
+                            <div class="stat-controls">
+                                <button type="button" class="stat-btn" data-stat="intelligence" data-action="decrease">−</button>
+                                <span class="stat-display" id="intelligence-display">8</span>
+                                <button type="button" class="stat-btn" data-stat="intelligence" data-action="increase">+</button>
+                            </div>
+                            <div class="stat-modifier" id="intelligence-modifier">+0</div>
+                        </div>
+
+                        <!-- WIS -->
+                        <div class="stat-allocator">
+                            <div class="stat-name">WIS</div>
+                            <div class="stat-controls">
+                                <button type="button" class="stat-btn" data-stat="wisdom" data-action="decrease">−</button>
+                                <span class="stat-display" id="wisdom-display">8</span>
+                                <button type="button" class="stat-btn" data-stat="wisdom" data-action="increase">+</button>
+                            </div>
+                            <div class="stat-modifier" id="wisdom-modifier">+0</div>
+                        </div>
+
+                        <!-- CHA -->
+                        <div class="stat-allocator">
+                            <div class="stat-name">CHA</div>
+                            <div class="stat-controls">
+                                <button type="button" class="stat-btn" data-stat="charisma" data-action="decrease">−</button>
+                                <span class="stat-display" id="charisma-display">8</span>
+                                <button type="button" class="stat-btn" data-stat="charisma" data-action="increase">+</button>
+                            </div>
+                            <div class="stat-modifier" id="charisma-modifier">+0</div>
+                        </div>
+                    </div>
                 </div>
-            </div>
 
-            <div class="input-group">
-                <label for="campaign-setting">Campaign Setting</label>
-                <textarea id="campaign-setting" rows="3" placeholder="Describe the world or starting scenario...">High Fantasy Adventure in the Forgotten Realms.</textarea>
-            </div>
+                <div class="input-group">
+                    <label>Backstory</label>
+                    <textarea id="charBackstory" rows="4" placeholder="Tell us about your character's history, motivations, and personality..." required></textarea>
+                    <p style="font-size: 0.75rem; color: var(--slate-400); margin-top: 0.25rem;">
+                        The AI will use your backstory to generate appropriate starting equipment and currency
+                    </p>
+                </div>
 
-            <button onclick="app.startGame()">Start Adventure <div class="spinner" id="start-spinner"></div></button>
-            <button class="secondary" onclick="app.setView('setup-view')">Back</button>
+                <div class="input-group">
+                    <label>Adventure Setting</label>
+                    <select id="setting">
+                        <option value="classic-fantasy">Classic Fantasy</option>
+                        <option value="dark-fantasy">Dark Fantasy</option>
+                        <option value="high-fantasy">High Fantasy</option>
+                        <option value="urban-fantasy">Urban Fantasy</option>
+                        <option value="steampunk">Steampunk</option>
+                    </select>
+                </div>
+
+                <div class="input-group">
+                    <label>Custom Story/Roleplay Description (Optional)</label>
+                    <textarea id="customStory" rows="3" placeholder="Describe the specific type of story or roleplay you want (e.g., 'A mystery investigation in a magical academy', 'Political intrigue in a desert kingdom', etc.)"></textarea>
+                    <p style="font-size: 0.75rem; color: var(--slate-400); margin-top: 0.25rem;">
+                        This will guide the AI to create your desired narrative experience
+                    </p>
+                </div>
+
+                <div class="grid grid-cols-2">
+                    <div class="input-group">
+                        <label>Tone</label>
+                        <select id="tone">
+                            <option value="serious">Serious</option>
+                            <option value="balanced" selected>Balanced</option>
+                            <option value="lighthearted">Lighthearted</option>
+                        </select>
+                    </div>
+
+                    <div class="input-group">
+                        <label>Difficulty</label>
+                        <select id="difficulty">
+                            <option value="easy">Easy</option>
+                            <option value="medium" selected>Medium</option>
+                            <option value="hard">Hard</option>
+                            <option value="deadly">Deadly</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <label>Adventure Pacing</label>
+                    <select id="pacing">
+                        <option value="slow">Slow & Story-Rich</option>
+                        <option value="moderate" selected>Moderate</option>
+                        <option value="fast">Fast & Action-Packed</option>
+                    </select>
+                </div>
+
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Begin Adventure</button>
+            </form>
+
+            <div style="text-align: center; margin-top: 1rem;">
+                <button id="resetApiKeyCharScreen" class="btn btn-secondary" style="font-size: 0.875rem;">🔑 Reset API Key</button>
+            </div>
         </div>
     </div>
 
-    <!-- GAME VIEW -->
-    <div id="game-view" class="view">
-        <!-- Sidebar -->
-        <div id="sidebar">
-            <h3 id="sidebar-char-name">Character</h3>
-            <div class="stat-block">
-                <div class="stat-row"><span>Race:</span> <span id="disp-race">-</span></div>
-                <div class="stat-row"><span>Class:</span> <span id="disp-class">-</span></div>
-                <div class="stat-row"><span>Level:</span> <span id="disp-level">1</span></div>
-                <div class="stat-row"><span>XP:</span> <span id="disp-xp">0</span></div>
-            </div>
-
-            <div class="stat-block">
-                <div class="stat-row" style="margin-bottom: 0;">
-                    <span>HP:</span>
-                    <span><span id="disp-hp-curr">10</span> / <span id="disp-hp-max">10</span></span>
-                </div>
-                <div class="hp-bar-container">
-                    <div class="hp-bar-fill" id="hp-bar"></div>
-                </div>
-            </div>
-
-            <div class="tabs">
-                <button class="tab active" onclick="app.openTab('stats')">Stats</button>
-                <button class="tab" onclick="app.openTab('inventory')">Inv</button>
-                <button class="tab" onclick="app.openTab('spells')">Spells</button>
-            </div>
-
-            <div id="tab-stats" class="tab-content active">
-                <!-- Attributes populated by JS -->
-                <div id="attributes-list"></div>
-            </div>
-
-            <div id="tab-inventory" class="tab-content">
-                <ul id="inventory-list" style="padding-left: 20px; margin-top: 10px;">
-                    <li>Empty</li>
-                </ul>
-            </div>
-
-            <div id="tab-spells" class="tab-content">
-                 <ul id="spells-list" style="padding-left: 20px; margin-top: 10px;">
-                    <li>None</li>
-                </ul>
-            </div>
-
-            <div style="margin-top: auto;">
-                <button class="secondary" style="width: 100%; border-color: #ff4d4d; color: #ff4d4d;" onclick="app.quitGame()">Quit Game</button>
-            </div>
+    <!-- Initialization Screen -->
+    <div id="initScreen" class="container hidden" style="min-height: 100vh; display: flex; align-items: center; justify-content: center;">
+        <div class="card text-center" style="max-width: 500px;">
+            <div class="spinner"></div>
+            <p style="font-size: 1.125rem; color: var(--slate-300); margin-top: 1rem;">Preparing your adventure...</p>
+            <p style="font-size: 0.875rem; color: var(--slate-400); margin-top: 0.5rem;">Generating starting equipment and currency based on your backstory</p>
+            <button id="resetApiKeyInitScreen" class="btn btn-secondary" style="margin-top: 1.5rem; font-size: 0.875rem;">🔑 Reset API Key</button>
         </div>
+    </div>
 
-        <!-- Main Area -->
-        <div id="main-area">
-            <div id="chat-container">
-                <div class="message system">Welcome to the DeepSeek RPG. Please configure your game to begin.</div>
+    <!-- Main Game Screen -->
+    <div id="gameScreen" class="container hidden">
+        <header style="margin-bottom: 1.5rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+                <div style="flex: 1;">
+                    <button id="helpBtn" class="btn btn-secondary" aria-label="Show help and keyboard shortcuts" title="Show help (Press ?)">❓ Help</button>
+                </div>
+                <h1 style="text-align: center; font-size: 1.5rem; font-weight: bold;">D&D - AI Dungeon Master</h1>
+                <div style="flex: 1; display: flex; justify-content: flex-end; gap: 0.5rem;">
+                    <div style="position: relative;">
+                        <button id="saveMenuBtn" class="btn btn-secondary" aria-label="Save menu">💾 Save</button>
+                        <div id="saveMenu" class="save-menu hidden">
+                            <button id="exportBtn">📥 Export Save</button>
+                            <button id="importBtn">📤 Import Save</button>
+                            <button id="resetApiKeyGameScreen">🔑 Reset API Key</button>
+                            <button id="newGameBtn" class="btn-danger" style="margin-top: 0.5rem; background-color: var(--red-600);">🔄 New Game</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <p id="headerInfo" style="text-align: center; font-size: 0.875rem; color: var(--slate-400);"></p>
+        </header>
+
+        <div class="grid lg-grid-cols-3">
+            <!-- Left Column: Character Sheet -->
+            <div>
+                <div class="card">
+                    <h2 id="charSheetName" style="font-size: 1.25rem; font-weight: 600; margin-bottom: 0.25rem;"></h2>
+                    <p id="charSheetInfo" style="color: var(--slate-400); font-size: 0.875rem; margin-bottom: 1rem;"></p>
+
+                    <div class="grid grid-cols-2" style="margin-bottom: 1rem;">
+                        <div class="stat-box">
+                            <div class="stat-label">HP</div>
+                            <div class="stat-value" id="hpDisplay"></div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-label">AC</div>
+                            <div class="stat-value" id="acDisplay"></div>
+                        </div>
+                    </div>
+
+                    <div id="statsGrid" class="grid grid-cols-3" style="margin-bottom: 1rem;"></div>
+
+                    <div id="passivePerception" style="font-size: 0.875rem; color: var(--slate-300); padding-top: 0.75rem; border-top: 1px solid var(--slate-700);"></div>
+                </div>
+
+                <!-- Currency -->
+                <div class="card">
+                    <h3 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Currency</h3>
+                    <div id="currencyDisplay"></div>
+                </div>
+
+                <!-- Inventory -->
+                <div class="card">
+                    <h3 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Inventory</h3>
+                    <input
+                        type="text"
+                        id="inventorySearch"
+                        class="search-box"
+                        placeholder="Search inventory..."
+                        aria-label="Search inventory items"
+                    />
+                    <div id="inventoryList" role="list" aria-label="Inventory items"></div>
+                    <p class="keyboard-hint">💡 Tip: Press '/' to quickly search inventory</p>
+                </div>
+
+                <!-- SECTION 9 (UI PART): Quest log panel -->
+                <div class="card">
+                    <h3 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Quests</h3>
+                    <div id="questList"></div>
+                </div>
+
+                <!-- SECTION 10 (UI PART): Roll History panel -->
+                <div class="card">
+                    <h3 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Roll History</h3>
+                    <div id="rollHistoryList"></div>
+                </div>
             </div>
 
-            <div id="input-area">
-                <input type="text" id="command-input" placeholder="What would you like to do?">
-                <button onclick="app.sendUserAction()">Send <div class="spinner" id="chat-spinner"></div></button>
+            <!-- Right Column: World / Combat / Log -->
+            <div>
+                <!-- SECTION 7 (UI PART): Combat status + enemies -->
+                <div id="locationCard" class="card hidden">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <div>
+                            <p style="font-size: 0.875rem; color: var(--slate-400); text-transform: uppercase; letter-spacing: 0.05em;">Current Location</p>
+                            <p id="locationName" style="font-size: 1.125rem; font-weight: 600; color: var(--blue-400);"></p>
+                        </div>
+                        <span id="combatBadge" class="badge badge-combat hidden">⚔️ IN COMBAT</span>
+                    </div>
+                </div>
+
+                <div id="enemiesCard" class="card hidden">
+                    <h3 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem; color: var(--red-400);">Enemies</h3>
+                    <div id="enemiesList"></div>
+                </div>
+
+                <!-- Adventure Log & Actions -->
+                <div class="card">
+                    <h2 style="font-size: 1.25rem; font-weight: 600; margin-bottom: 1rem;">Adventure Log</h2>
+
+                    <div class="log-container" id="messageLog"></div>
+
+                    <div class="flex gap-2 flex-wrap mb-4">
+                        <button id="rollD20Btn" class="btn btn-secondary" aria-label="Roll a d20 dice" title="Press 'R' to roll">🎲 Roll D20</button>
+                        <button id="rollAdvBtn" class="btn btn-secondary" style="background-color: var(--green-500);" aria-label="Roll with advantage">↗️ Advantage</button>
+                        <button id="rollDisBtn" class="btn btn-secondary" style="background-color: var(--red-500);" aria-label="Roll with disadvantage">↘️ Disadvantage</button>
+                        <button id="perceptionBtn" class="btn btn-secondary" aria-label="Make a perception check" title="Press 'P' for perception">Perception Check</button>
+                    </div>
+
+                    <div style="display: flex; gap: 0.5rem;">
+                        <textarea id="actionInput" placeholder="Describe your action..." aria-label="Action input" style="flex: 1; min-height: 100px; background-color: var(--slate-700); border: 1px solid var(--slate-600); color: white; padding: 0.5rem; border-radius: 0.375rem; resize: vertical;"></textarea>
+                        <button id="sendBtn" class="btn btn-primary" aria-label="Send action" title="Press Enter to send" style="align-self: flex-end; padding: 0.5rem 1rem;">Send</button>
+                    </div>
+                    <p class="keyboard-hint">💡 Tip: Press Enter to send, '?' for help, 'R' to roll, 'P' for perception</p>
+                </div>
             </div>
         </div>
     </div>
+
+    <!-- Item Modal -->
+    <div id="itemModal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="itemModalTitle" style="font-size: 1.25rem; font-weight: bold;"></h3>
+                <button id="itemModalClose" class="modal-close">×</button>
+            </div>
+            <div id="itemModalBody"></div>
+        </div>
+    </div>
+
+    <!-- Quest Modal -->
+    <div id="questModal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="questModalTitle" style="font-size: 1.25rem; font-weight: bold;"></h3>
+                <button id="questModalClose" class="modal-close" aria-label="Close quest modal">×</button>
+            </div>
+            <div id="questModalBody"></div>
+        </div>
+    </div>
+
+    <!-- Help Modal -->
+    <div id="helpModal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 style="font-size: 1.25rem; font-weight: bold;">Keyboard Shortcuts & Help</h3>
+                <button id="helpModalClose" class="modal-close" aria-label="Close help modal">×</button>
+            </div>
+            <div style="max-height: 60vh; overflow-y: auto;">
+                <h4 style="font-size: 1rem; font-weight: 600; margin-bottom: 0.75rem; color: var(--blue-400);">⌨️ Keyboard Shortcuts</h4>
+                <div style="margin-bottom: 1.5rem;">
+                    <div class="property-row">
+                        <span class="property-label"><kbd>/</kbd></span>
+                        <span class="property-value">Focus inventory search</span>
+                    </div>
+                    <div class="property-row">
+                        <span class="property-label"><kbd>R</kbd></span>
+                        <span class="property-value">Roll d20</span>
+                    </div>
+                    <div class="property-row">
+                        <span class="property-label"><kbd>P</kbd></span>
+                        <span class="property-value">Perception check</span>
+                    </div>
+                    <div class="property-row">
+                        <span class="property-label"><kbd>ESC</kbd></span>
+                        <span class="property-value">Close modals</span>
+                    </div>
+                    <div class="property-row">
+                        <span class="property-label"><kbd>?</kbd></span>
+                        <span class="property-value">Show this help</span>
+                    </div>
+                    <div class="property-row">
+                        <span class="property-label"><kbd>Enter</kbd></span>
+                        <span class="property-value">Send action (in text box)</span>
+                    </div>
+                </div>
+
+                <h4 style="font-size: 1rem; font-weight: 600; margin-bottom: 0.75rem; color: var(--green-400);">💡 Features</h4>
+                <div style="margin-bottom: 1.5rem;">
+                    <p style="font-size: 0.875rem; color: var(--slate-300); margin-bottom: 0.5rem;">
+                        <strong>Auto-Save:</strong> Your game automatically saves every 30 seconds and after each action.
+                    </p>
+                    <p style="font-size: 0.875rem; color: var(--slate-300); margin-bottom: 0.5rem;">
+                        <strong>Search:</strong> Use the search box to quickly find items in your inventory.
+                    </p>
+                    <p style="font-size: 0.875rem; color: var(--slate-300); margin-bottom: 0.5rem;">
+                        <strong>Export/Import:</strong> Save your game to a file using the save menu, or import a previous save.
+                    </p>
+                    <p style="font-size: 0.875rem; color: var(--slate-300); margin-bottom: 0.5rem;">
+                        <strong>Click Items:</strong> Click on inventory items or quests to see more details.
+                    </p>
+                </div>
+
+                <h4 style="font-size: 1rem; font-weight: 600; margin-bottom: 0.75rem; color: var(--purple-400);">🎲 Text Formatting</h4>
+                <div>
+                    <p style="font-size: 0.875rem; color: var(--slate-300); margin-bottom: 0.5rem;">
+                        The DM can use special formatting in messages:
+                    </p>
+                    <ul style="font-size: 0.875rem; color: var(--slate-400); margin-left: 1.5rem; list-style: disc;">
+                        <li><code>**bold**</code> for <strong>bold text</strong></li>
+                        <li><code>*italic*</code> for <em>italic text</em></li>
+                        <li><code>[red]text[/red]</code> for <span class="color-red">colored text</span></li>
+                        <li><code>[spoiler]text[/spoiler]</code> for hidden text (hover to reveal)</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <input type="file" id="importFile" accept=".json" style="display: none;">
 
     <script>
-        // --- DATA PORTED FROM PYTHON ---
-        const RACES = {
-            "Human": { bonuses: {str: 1, dex: 1, con: 1, int: 1, wis: 1, cha: 1}, speed: 30, traits: [] },
-            "Elf": { bonuses: {dex: 2}, speed: 30, traits: ["Darkvision", "Keen Senses"] },
-            "Dwarf": { bonuses: {con: 2}, speed: 25, traits: ["Darkvision", "Dwarven Resilience"] },
-            "Halfling": { bonuses: {dex: 2}, speed: 25, traits: ["Lucky", "Brave"] }
-        };
+        // =====================================================================
+        // SECTION 11: STATE MANAGEMENT SYSTEM (CORE GAME DATA + LOCALSTORAGE)
+        // =====================================================================
+        // Claude:
+        //   - gameData is the central in-memory state.
+        //   - All persistent fields should be serializable to JSON.
+        //   - When you add new persistent fields, update:
+        //       * loadSavedData()
+        //       * persistGame()
+        //       * export/import logic at the bottom
+        //   - Do NOT store functions inside gameData.
 
-        const CLASSES = {
-            "Fighter": { hit_die: 10, saves: ["str", "con"], profs: ["All armor", "Shields", "Simple/Martial weapons"] },
-            "Wizard": { hit_die: 6, saves: ["int", "wis"], profs: ["Daggers", "Quarterstaffs"] },
-            "Rogue": { hit_die: 8, saves: ["dex", "int"], profs: ["Light armor", "Simple weapons", "Thieves' tools"] },
-            "Cleric": { hit_die: 8, saves: ["wis", "cha"], profs: ["Light/Medium armor", "Shields"] }
-        };
+        // =====================================================================
+        // NAME BLACKLIST SYSTEM - Prevents overused fantasy names
+        // =====================================================================
+        // This system works in three layers:
+        // 1. AI Instruction: Prompts explicitly tell the AI not to use blacklisted names
+        // 2. Detection: After AI response, scan for any blacklisted names that slipped through
+        // 3. Auto-Replacement: If found, automatically call AI to replace them before showing to user
+        //
+        // This ensures the user NEVER sees overused fantasy names like "Elara" or "Thornwood"
+        // The replacement happens silently in the background with no extra messages in the log.
 
-        // --- APP LOGIC ---
-        const app = {
-            state: {
-                apiKey: "",
-                model: "deepseek-chat",
-                character: null,
-                chatHistory: [],
-                isProcessing: false
-            },
 
-            init: function() {
-                // Populate Dropdowns
-                const raceSelect = document.getElementById('char-race');
-                Object.keys(RACES).forEach(r => {
-                    const opt = document.createElement('option');
-                    opt.value = r;
-                    opt.textContent = r;
-                    raceSelect.appendChild(opt);
-                });
+        const BLACKLISTED_NAMES = [
+            // Common overused names
+            'elara', 'lyra', 'valerius', 'thornwood', 'ravencrest', 'shadowmere',
+            'silverwood', 'aric', 'thorne', 'kael', 'seraphina', 'isolde',
+            'morgana', 'zephyr', 'aria', 'luna', 'raven', 'shadow', 'thorn',
+            'silverfang', 'blackwood', 'nightshade', 'moonstone', 'starfall',
+            'duskwood', 'ashwood', 'ironwood', 'stormwind', 'draven', 'aldric',
+            'cedric', 'garreth', 'alaric', 'elowen', 'althea', 'cassia',
+            'evelyn', 'gwendolyn', 'lucian', 'damien', 'tristan', 'adrian',
+            'rook', 'asher', 'rowan', 'finnian', 'thaddeus', 'ember',
+            'scarlet', 'jade', 'crystal', 'rune', 'sage', 'willow',
+            'briar', 'autumn', 'haven', 'storm', 'winter'
+        ];
 
-                const classSelect = document.getElementById('char-class');
-                Object.keys(CLASSES).forEach(c => {
-                    const opt = document.createElement('option');
-                    opt.value = c;
-                    opt.textContent = c;
-                    classSelect.appendChild(opt);
-                });
+        const BLACKLISTED_PATTERNS = [
+            /silver[a-z]+/i,
+            /shadow[a-z]+/i,
+            /raven[a-z]+/i,
+            /thorn[a-z]+/i,
+            /moon[a-z]+/i,
+            /dark[a-z]+/i,
+            /night[a-z]+/i,
+            /storm[a-z]+/i,
+            /iron[a-z]+/i,
+            /blood[a-z]+/i
+        ];
 
-                // Init Preview
-                this.updatePreview();
+        function escapeRegExp(str) {
+            return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
 
-                // Bind Input Enter
-                document.getElementById('command-input').addEventListener('keypress', (e) => {
-                    if (e.key === 'Enter') this.sendUserAction();
-                });
-            },
+        // Enhanced detector with ability to ignore specific names (e.g. player name)
+        function detectBlacklistedNames(text, options = {}) {
+            if (!text) return [];
 
-            setView: function(viewId) {
-                document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
-                document.getElementById(viewId).classList.add('active');
-            },
+            const ignoreNames = (options.ignoreNames || []).map(function(n) {
+                return String(n).toLowerCase().replace(/[-\s]/g, '');
+            });
 
-            connect: function() {
-                const key = document.getElementById('api-key').value.trim();
-                const model = document.getElementById('model-select').value;
+            const found = new Set();
+            // Match capitalized words and compound names (like "Thornwood" or "Shadow-mere")
+            const words = text.match(/\b[A-Z][a-z]+(?:[-\s][A-Z][a-z]+)?\b/g) || [];
 
-                if (!key) {
-                    alert("Please enter a valid DeepSeek API Key.");
-                    return;
+            for (let word of words) {
+                const lowerWord = word.toLowerCase().replace(/[-\s]/g, '');
+
+                // Skip ignored names (e.g. the player character)
+                if (ignoreNames.indexOf(lowerWord) !== -1) {
+                    continue;
                 }
 
-                this.state.apiKey = key;
-                this.state.model = model;
-                this.setView('char-creation-view');
-            },
-
-            updatePreview: function() {
-                const race = document.getElementById('char-race').value;
-                const cls = document.getElementById('char-class').value;
-
-                if (!race || !cls) return;
-
-                const rData = RACES[race];
-                const cData = CLASSES[cls];
-
-                // Calculate base HP (max of hit die + con mod placeholder)
-                const hp = cData.hit_die + (rData.bonuses.con || 0);
-
-                let html = `<strong>Traits:</strong> ${rData.traits.join(", ")}<br>`;
-                html += `<strong>Proficiencies:</strong> ${cData.profs.join(", ")}<br>`;
-                html += `<strong>Hit Die:</strong> d${cData.hit_die} | <strong>Speed:</strong> ${rData.speed}ft`;
-
-                document.getElementById('preview-stats').innerHTML = html;
-            },
-
-            startGame: async function() {
-                const name = document.getElementById('char-name').value.trim();
-                const race = document.getElementById('char-race').value;
-                const cls = document.getElementById('char-class').value;
-                const setting = document.getElementById('campaign-setting').value;
-
-                if (!name) {
-                    alert("Please name your character.");
-                    return;
+                // Check exact matches (case-insensitive, ignore hyphens/spaces)
+                if (BLACKLISTED_NAMES.indexOf(lowerWord) !== -1) {
+                    found.add(word);
+                    continue;
                 }
 
-                document.getElementById('start-spinner').style.display = 'inline-block';
-
-                // Create Character Object
-                this.state.character = {
-                    name: name,
-                    race: race,
-                    class: cls,
-                    level: 1,
-                    xp: 0,
-                    max_hp: CLASSES[cls].hit_die + (RACES[race].bonuses.con || 0),
-                    current_hp: CLASSES[cls].hit_die + (RACES[race].bonuses.con || 0),
-                    inventory: ["Backpack", "Rations (5)", "Torch"],
-                    attributes: {
-                        str: 10 + (RACES[race].bonuses.str || 0),
-                        dex: 10 + (RACES[race].bonuses.dex || 0),
-                        con: 10 + (RACES[race].bonuses.con || 0),
-                        int: 10 + (RACES[race].bonuses.int || 0),
-                        wis: 10 + (RACES[race].bonuses.wis || 0),
-                        cha: 10 + (RACES[race].bonuses.cha || 0),
+                // Check patterns (like Silver*, Shadow*, etc.)
+                for (let pattern of BLACKLISTED_PATTERNS) {
+                    if (pattern.test(word)) {
+                        found.add(word);
+                        break;
                     }
+                }
+
+                // Check if the name contains blacklisted components
+                for (let i = 0; i < BLACKLISTED_NAMES.length; i++) {
+                    const blacklisted = BLACKLISTED_NAMES[i];
+                    if (lowerWord.indexOf(blacklisted) !== -1 && lowerWord.length > blacklisted.length) {
+                        found.add(word);
+                        break;
+                    }
+                }
+            }
+
+            return Array.from(found);
+        }
+
+        // ---------------------------------------------------------------------
+        // AUTO-REPLACEMENT (AI + fallback)
+        // Returns: { text: "...", replacements: { OldName: NewName, ... } }
+        // ---------------------------------------------------------------------
+        async function replaceBlacklistedNames(text, blacklistedNames, context, options = {}, retryCount = 0) {
+            const ignoreNames = options.ignoreNames || [];
+
+            console.log('Replacing blacklisted names (attempt ' + (retryCount + 1) + '):', blacklistedNames);
+
+            // Max 2 retries to prevent infinite loops
+            if (retryCount >= 2) {
+                console.warn('Max retries reached, using fallback replacement');
+                return fallbackNameReplacement(text, blacklistedNames);
+            }
+
+            const replacementPrompt = `You are a creative name generator. The following fantasy names are OVERUSED and BANNED: ${blacklistedNames.join(', ')}
+
+Replace EACH of these names in the text with CREATIVE, UNIQUE alternatives that fit the context.
+
+RULES:
+- Do NOT rename the player character if mentioned.
+- Do NOT use any names from this list: ${BLACKLISTED_NAMES.slice(0, 30).join(', ')}
+- Do NOT use names starting with: Silver-, Shadow-, Raven-, Thorn-, Moon-, Dark-, Night-, Storm-, Iron-, Blood-
+- Make names memorable and distinctive
+- Match the setting and tone of the original text
+- Keep EVERYTHING else in the text identical.
+
+Respond ONLY with a JSON object in this exact shape:
+{
+  "replacedText": "full text with blacklisted names replaced",
+  "replacements": {
+    "OldName1": "NewName1",
+    "OldName2": "NewName2"
+  }
+}
+
+Original text:
+${text}`;
+
+            try {
+                const response = await callAI(replacementPrompt, "Replace banned names only. Return ONLY the JSON object.");
+                if (!response || !response.replacedText) {
+                    console.warn('Name replacement AI returned no replacedText, using fallback');
+                    return fallbackNameReplacement(text, blacklistedNames);
+                }
+
+                // Check for any remaining blacklisted names
+                const stillBlacklisted = detectBlacklistedNames(response.replacedText, { ignoreNames: ignoreNames });
+                if (stillBlacklisted.length > 0) {
+                    console.warn('Replacement still contains blacklisted names, retrying:', stillBlacklisted);
+                    return replaceBlacklistedNames(response.replacedText, stillBlacklisted, context, options, retryCount + 1);
+                }
+
+                return {
+                    text: response.replacedText,
+                    replacements: response.replacements || {}
                 };
+            } catch (error) {
+                console.error('Error replacing names via AI:', error);
+                return fallbackNameReplacement(text, blacklistedNames);
+            }
+        }
 
-                // Add starting gear based on class
-                if (cls === "Fighter") this.state.character.inventory.push("Longsword", "Chain Mail");
-                if (cls === "Wizard") this.state.character.inventory.push("Spellbook", "Staff");
-                if (cls === "Rogue") this.state.character.inventory.push("Daggers (2)", "Leather Armor", "Thieves' Tools");
-                if (cls === "Cleric") this.state.character.inventory.push("Mace", "Shield", "Holy Symbol");
+        // Fallback: deterministic-ish local replacements
+        function fallbackNameReplacement(text, blacklistedNames) {
+            const alternativeNames = {
+                fantasy: ['Brynn', 'Cassian', 'Wylla', 'Torin', 'Mira', 'Garrick', 'Zara', 'Orin', 'Petra', 'Halden', 'Corvin', 'Bexley', 'Grimm', 'Vera', 'Dorian', 'Sable', 'Quinn', 'Rorik', 'Thessa', 'Wendel'],
+                locations: ['Windmere', 'Copperdale', 'Ashbourne', 'Frostholm', 'Redbrook', 'Irongate', 'Saltmarsh', 'Highcrest', 'Oakvale', 'Riverford', 'Stonebridge', 'Millhaven', 'Greyhaven', 'Brightwater']
+            };
 
-                // Initialize UI
-                this.updateSidebar();
+            let result = text;
+            const usedNames = new Set();
+            const replacements = {};
 
-                // Initialize Chat History
-                const systemPrompt = "You are a Dungeon Master for a D&D 5e game. " +
-                    "Your goal is to provide an immersive, interactive storytelling experience. " +
-                    "Describe the environment, NPCs, and events based on the player's actions. " +
-                    "Keep responses concise (1-2 paragraphs). " +
-                    "Manage combat narration dynamically. " +
-                    "Always ask the player what they want to do next.";
+            blacklistedNames.forEach(function(name) {
+                const isLocation = /wood|mere|crest|vale|ford|bridge|haven|gate|holm$/i.test(name);
+                const pool = isLocation ? alternativeNames.locations : alternativeNames.fantasy;
 
-                const charInfo = `Name: ${name}, Race: ${race}, Class: ${cls}, Level: 1. ` +
-                    `Stats: ${JSON.stringify(this.state.character.attributes)}. ` +
-                    `Inventory: ${this.state.character.inventory.join(", ")}.`;
+                // Pick a random name that hasn't been used yet
+                let newName;
+                do {
+                    newName = pool[Math.floor(Math.random() * pool.length)];
+                } while (usedNames.has(newName) && usedNames.size < pool.length);
 
-                const initialPrompt = `Start the campaign. Setting: ${setting}. Character: ${charInfo}. Describe the opening scene.`;
+                usedNames.add(newName);
+                replacements[name] = newName;
+                result = result.replace(new RegExp('\\b' + name + '\\b', 'gi'), newName);
+            });
 
-                this.state.chatHistory = [
-                    { role: "system", content: systemPrompt },
-                    { role: "user", content: initialPrompt }
-                ];
+            return { text: result, replacements: replacements };
+        }
 
-                // Clear chat
-                document.getElementById('chat-container').innerHTML = "";
+        // ---------------------------------------------------------------------
+        // UNIVERSAL NAME SANITIZER
+        // Applies replacements across narrative + quests + location + enemies +
+        // inventory + existing game state, while NEVER touching the player name.
+        // ---------------------------------------------------------------------
 
-                try {
-                    const response = await this.callDeepSeek(this.state.chatHistory);
-                    this.addMessageToLog(response, 'dm');
-                    this.state.chatHistory.push({ role: "assistant", content: response });
+        function applyNameReplacementsInText(text, replacements) {
+            if (!text) return text;
+            let result = text;
+            for (const key in replacements) {
+                if (!Object.prototype.hasOwnProperty.call(replacements, key)) continue;
+                const oldN = key;
+                const newN = replacements[key];
+                result = result.replace(new RegExp('\\b' + oldN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi'), newN);
+            }
+            return result;
+        }
 
-                    document.getElementById('start-spinner').style.display = 'none';
-                    this.setView('game-view');
-                } catch (error) {
-                    alert("Failed to start game: " + error.message);
-                    document.getElementById('start-spinner').style.display = 'none';
+        function applyNameReplacementsToQuest(q, replacements) {
+            if (!q) return q;
+            const out = Object.assign({}, q);
+            ['id', 'title', 'summary', 'description', 'rewards', 'giver'].forEach(function(field) {
+                if (out[field]) {
+                    out[field] = applyNameReplacementsInText(out[field], replacements);
                 }
-            },
+            });
+            return out;
+        }
 
-            updateSidebar: function() {
-                const c = this.state.character;
-                document.getElementById('sidebar-char-name').textContent = c.name;
-                document.getElementById('disp-race').textContent = c.race;
-                document.getElementById('disp-class').textContent = c.class;
-                document.getElementById('disp-level').textContent = c.level;
-                document.getElementById('disp-xp').textContent = c.xp;
-                document.getElementById('disp-hp-curr').textContent = c.current_hp;
-                document.getElementById('disp-hp-max').textContent = c.max_hp;
+        async function sanitizeAIResponseNames(aiResponse, contextLabel) {
+            try {
+                const charName = gameData.character && gameData.character.name;
+                const ignore = charName ? [charName] : [];
 
-                // HP Bar
-                const pct = (c.current_hp / c.max_hp) * 100;
-                document.getElementById('hp-bar').style.width = pct + "%";
-                document.getElementById('hp-bar').style.backgroundColor = pct < 30 ? "#ff0000" : "#ff4d4d";
+                let combined = '';
 
-                // Attributes
-                const attrDiv = document.getElementById('attributes-list');
-                attrDiv.innerHTML = "";
-                for (const [key, val] of Object.entries(c.attributes)) {
-                    const row = document.createElement('div');
-                    row.className = "stat-row";
-                    const mod = Math.floor((val - 10) / 2);
-                    const sign = mod >= 0 ? "+" : "";
-                    row.innerHTML = `<span style="text-transform:uppercase">${key}</span> <span>${val} (${sign}${mod})</span>`;
-                    attrDiv.appendChild(row);
+                // From latest AI response
+                if (aiResponse.narrative) combined += aiResponse.narrative + '\n';
+                if (aiResponse.location) combined += aiResponse.location + '\n';
+                if (Array.isArray(aiResponse.enemies)) {
+                    aiResponse.enemies.forEach(function(e) {
+                        combined += (e.name || '') + '\n';
+                    });
                 }
-
-                // Inventory
-                const invList = document.getElementById('inventory-list');
-                invList.innerHTML = "";
-                c.inventory.forEach(item => {
-                    const li = document.createElement('li');
-                    li.textContent = item;
-                    invList.appendChild(li);
-                });
-            },
-
-            openTab: function(tabName) {
-                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-
-                // Find button by text roughly or index... easier to just pass element, but simplified here:
-                const tabs = { 'stats': 0, 'inventory': 1, 'spells': 2 };
-                document.querySelectorAll('.tab')[tabs[tabName]].classList.add('active');
-                document.getElementById('tab-' + tabName).classList.add('active');
-            },
-
-            addMessageToLog: function(text, type) {
-                const container = document.getElementById('chat-container');
-                const div = document.createElement('div');
-                div.className = `message ${type}`;
-
-                // Simple formatting
-                let formatted = text.replace(/\n/g, '<br>');
-                if (type === 'dm') {
-                    // Bold names or specific keywords could be highlighted here
+                if (Array.isArray(aiResponse.quests)) {
+                    aiResponse.quests.forEach(function(q) {
+                        combined += (q.title || '') + '\n';
+                        combined += (q.summary || '') + '\n';
+                        combined += (q.description || '') + '\n';
+                        combined += (q.rewards || '') + '\n';
+                        combined += (q.giver || '') + '\n';
+                    });
+                }
+                if (aiResponse.characterUpdates && Array.isArray(aiResponse.characterUpdates.inventory)) {
+                    aiResponse.characterUpdates.inventory.forEach(function(i) {
+                        combined += (i.name || '') + '\n';
+                    });
                 }
 
-                div.innerHTML = type === 'dm' ? `<strong>DM:</strong> ${formatted}` : formatted;
-                container.appendChild(div);
-                container.scrollTop = container.scrollHeight;
-            },
-
-            sendUserAction: async function() {
-                if (this.state.isProcessing) return;
-
-                const input = document.getElementById('command-input');
-                const text = input.value.trim();
-                if (!text) return;
-
-                // UI update
-                input.value = "";
-                this.addMessageToLog(text, 'user');
-
-                // Loading state
-                this.state.isProcessing = true;
-                document.getElementById('chat-spinner').style.display = 'inline-block';
-
-                // Add to history
-                this.state.chatHistory.push({ role: "user", content: text });
-
-                // Call API
-                try {
-                    const response = await this.callDeepSeek(this.state.chatHistory);
-                    this.addMessageToLog(response, 'dm');
-                    this.state.chatHistory.push({ role: "assistant", content: response });
-                } catch (error) {
-                    this.addMessageToLog(`Error: ${error.message}`, 'system');
-                } finally {
-                    this.state.isProcessing = false;
-                    document.getElementById('chat-spinner').style.display = 'none';
+                // Also sweep over current game state to keep everything in sync
+                if (gameData.gameState && gameData.gameState.location) {
+                    combined += gameData.gameState.location + '\n';
                 }
-            },
-
-            callDeepSeek: async function(messages) {
-                const url = "https://api.deepseek.com/chat/completions";
-                const headers = {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${this.state.apiKey}`
-                };
-
-                const body = {
-                    model: this.state.model,
-                    messages: messages,
-                    temperature: 1.0,
-                    stream: false
-                };
-
-                const res = await fetch(url, {
-                    method: "POST",
-                    headers: headers,
-                    body: JSON.stringify(body)
-                });
-
-                if (!res.ok) {
-                    const errText = await res.text();
-                    throw new Error(`API Error ${res.status}: ${errText}`);
+                if (Array.isArray(gameData.gameState.enemies)) {
+                    gameData.gameState.enemies.forEach(function(e) {
+                        combined += (e.name || '') + '\n';
+                    });
+                }
+                if (Array.isArray(gameData.quests)) {
+                    gameData.quests.forEach(function(q) {
+                        combined += (q.title || '') + '\n';
+                        combined += (q.summary || '') + '\n';
+                        combined += (q.description || '') + '\n';
+                        combined += (q.rewards || '') + '\n';
+                        combined += (q.giver || '') + '\n';
+                    });
+                }
+                if (Array.isArray(gameData.questOffers)) {
+                    gameData.questOffers.forEach(function(q) {
+                        combined += (q.title || '') + '\n';
+                        combined += (q.summary || '') + '\n';
+                        combined += (q.description || '') + '\n';
+                        combined += (q.rewards || '') + '\n';
+                        combined += (q.giver || '') + '\n';
+                    });
+                }
+                if (gameData.character && Array.isArray(gameData.character.inventory)) {
+                    gameData.character.inventory.forEach(function(i) {
+                        combined += (i.name || '') + '\n';
+                    });
                 }
 
-                const data = await res.json();
-                return data.choices[0].message.content;
-            },
+                const bad = detectBlacklistedNames(combined, { ignoreNames: ignore });
+                if (!bad.length) return;
 
-            quitGame: function() {
-                if (confirm("Are you sure you want to quit? Progress will be lost.")) {
-                    this.setView('setup-view');
-                    this.state.character = null;
-                    this.state.chatHistory = [];
+                console.log('sanitizeAIResponseNames: found blacklisted names:', bad);
+
+                const result = await replaceBlacklistedNames(combined, bad, contextLabel, { ignoreNames: ignore });
+                const replacements = result.replacements || {};
+
+                // Filter out any accidental mapping of the player name
+                const safeReplacements = {};
+                for (const oldN in replacements) {
+                    if (!Object.prototype.hasOwnProperty.call(replacements, oldN)) continue;
+                    const newN = replacements[oldN];
+                    if (charName && oldN.toLowerCase() === charName.toLowerCase()) {
+                        continue; // never remap the player name
+                    }
+                    safeReplacements[oldN] = newN;
                 }
+
+                if (!Object.keys(safeReplacements).length) return;
+
+                // Apply to AI response first
+                if (aiResponse.narrative) {
+                    aiResponse.narrative = applyNameReplacementsInText(aiResponse.narrative, safeReplacements);
+                }
+                if (aiResponse.location) {
+                    aiResponse.location = applyNameReplacementsInText(aiResponse.location, safeReplacements);
+                }
+                if (Array.isArray(aiResponse.enemies)) {
+                    aiResponse.enemies = aiResponse.enemies.map(function(e) {
+                        return Object.assign({}, e, {
+                            name: e.name ? applyNameReplacementsInText(e.name, safeReplacements) : e.name
+                        });
+                    });
+                }
+                if (Array.isArray(aiResponse.quests)) {
+                    aiResponse.quests = aiResponse.quests.map(function(q) {
+                        return applyNameReplacementsToQuest(q, safeReplacements);
+                    });
+                }
+                if (aiResponse.characterUpdates && Array.isArray(aiResponse.characterUpdates.inventory)) {
+                    aiResponse.characterUpdates.inventory = aiResponse.characterUpdates.inventory.map(function(i) {
+                        return Object.assign({}, i, {
+                            name: i.name ? applyNameReplacementsInText(i.name, safeReplacements) : i.name
+                        });
+                    });
+                }
+
+                // Then sweep existing game state so names stay consistent everywhere
+                if (gameData.gameState && gameData.gameState.location) {
+                    gameData.gameState.location = applyNameReplacementsInText(gameData.gameState.location, safeReplacements);
+                }
+                if (Array.isArray(gameData.gameState.enemies)) {
+                    gameData.gameState.enemies = gameData.gameState.enemies.map(function(e) {
+                        return Object.assign({}, e, {
+                            name: e.name ? applyNameReplacementsInText(e.name, safeReplacements) : e.name
+                        });
+                    });
+                }
+                if (Array.isArray(gameData.quests)) {
+                    gameData.quests = gameData.quests.map(function(q) {
+                        return applyNameReplacementsToQuest(q, safeReplacements);
+                    });
+                }
+                if (Array.isArray(gameData.questOffers)) {
+                    gameData.questOffers = gameData.questOffers.map(function(q) {
+                        return applyNameReplacementsToQuest(q, safeReplacements);
+                    });
+                }
+                if (gameData.character && Array.isArray(gameData.character.inventory)) {
+                    gameData.character.inventory = gameData.character.inventory.map(function(i) {
+                        return Object.assign({}, i, {
+                            name: i.name ? applyNameReplacementsInText(i.name, safeReplacements) : i.name
+                        });
+                    });
+                }
+
+                console.log('sanitizeAIResponseNames: applied replacements:', safeReplacements);
+            } catch (err) {
+                console.error('sanitizeAIResponseNames error:', err);
+            }
+        }
+
+
+        let gameData = {
+            apiConfig: null,
+            character: null,
+            gameState: {
+                inCombat: false,
+                currentTurn: null,
+                enemies: [],
+                narrative: "",
+                location: "Unknown",
+                // SECTION 4 (WORLD/TIME): simple clock
+                worldTime: { day: 1, hour: 8 }
+            },
+            adventurePreferences: null,
+            messages: [],
+            hasOpening: false,
+            quests: [], // SECTION 9: quest list
+            questOffers: [], // SECTION 9: pending quest offers from NPCs
+            rollHistory: [] // SECTION 10: dice roll history
+        };
+
+        // Point buy state
+        let pointBuyState = {
+            strength: 8,
+            dexterity: 8,
+            constitution: 8,
+            intelligence: 8,
+            wisdom: 8,
+            charisma: 8,
+            pointsRemaining: 27,
+            pointCosts: {
+                8: 0, 9: 1, 10: 2, 11: 3, 12: 4, 13: 5, 14: 7, 15: 9
             }
         };
 
-        // Initialize on load
-        window.addEventListener('load', () => {
-            app.init();
+        function safeParse(json) {
+            try {
+                return JSON.parse(json);
+            } catch (e) {
+                console.warn('Failed to parse JSON:', e);
+                return null;
+            }
+        }
+
+        function loadSavedData() {
+            console.log('Loading saved data from localStorage...');
+
+            const savedApi = localStorage.getItem('dnd_api_config');
+            if (savedApi) {
+                gameData.apiConfig = safeParse(savedApi) || gameData.apiConfig;
+                console.log('Loaded API config');
+            }
+
+            const savedChar = localStorage.getItem('dnd_character');
+            if (savedChar) {
+                gameData.character = safeParse(savedChar) || gameData.character;
+                console.log('Loaded character');
+            }
+
+            const savedGame = localStorage.getItem('dnd_game_state');
+            if (savedGame) {
+                const parsed = safeParse(savedGame);
+                if (parsed && typeof parsed === 'object') {
+                    gameData.gameState = Object.assign({}, gameData.gameState, parsed);
+                    if (!gameData.gameState.worldTime) {
+                        gameData.gameState.worldTime = { day: 1, hour: 8 };
+                    }
+                    console.log('Loaded game state');
+                }
+            }
+
+            const savedPrefs = localStorage.getItem('dnd_adventure_prefs');
+            if (savedPrefs) {
+                gameData.adventurePreferences = safeParse(savedPrefs) || gameData.adventurePreferences;
+                console.log('Loaded adventure preferences');
+            }
+
+            const savedMessages = localStorage.getItem('dnd_messages');
+            if (savedMessages) {
+                gameData.messages = safeParse(savedMessages) || gameData.messages;
+                console.log('Loaded messages');
+            }
+
+            const savedOpening = localStorage.getItem('dnd_has_opening');
+            if (savedOpening) {
+                gameData.hasOpening = savedOpening === 'true';
+                console.log('Loaded opening flag:', gameData.hasOpening);
+            }
+
+            const savedQuests = localStorage.getItem('dnd_quests');
+            if (savedQuests) {
+                gameData.quests = safeParse(savedQuests) || gameData.quests;
+                console.log('Loaded quests');
+            }
+
+            const savedQuestOffers = localStorage.getItem('dnd_quest_offers');
+            if (savedQuestOffers) {
+                gameData.questOffers = safeParse(savedQuestOffers) || gameData.questOffers;
+                console.log('Loaded quest offers');
+            }
+
+            const savedRolls = localStorage.getItem('dnd_roll_history');
+            if (savedRolls) {
+                gameData.rollHistory = safeParse(savedRolls) || gameData.rollHistory;
+                console.log('Loaded roll history');
+            }
+
+            console.log('Finished loading saved data');
+        }
+
+        function persistGame() {
+            if (gameData.character) {
+                localStorage.setItem('dnd_character', JSON.stringify(gameData.character));
+            }
+            localStorage.setItem('dnd_game_state', JSON.stringify(gameData.gameState));
+            localStorage.setItem('dnd_messages', JSON.stringify(gameData.messages));
+            localStorage.setItem('dnd_quests', JSON.stringify(gameData.quests || []));
+            localStorage.setItem('dnd_quest_offers', JSON.stringify(gameData.questOffers || []));
+            localStorage.setItem('dnd_roll_history', JSON.stringify(gameData.rollHistory || []));
+        }
+
+        // =====================================================================
+        // SECTION 2: CORE UTILITIES & TEXT FORMATTING (ENGINE BASICS)
+        // =====================================================================
+        // Claude:
+        //   - parseFormattedText maps simple markup to CSS classes.
+        //   - You can add more tags here if needed (e.g. [spoiler][/spoiler]).
+        //   - getModifier/formatModifier implement standard D&D 5e-style mods.
+        //   - SECURITY: Now includes HTML escaping to prevent XSS attacks
+
+        function escapeHtml(unsafe) {
+            if (!unsafe) return unsafe;
+            return String(unsafe)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function parseFormattedText(text) {
+            if (!text) return text;
+
+            // First, escape any HTML to prevent XSS
+            text = escapeHtml(text);
+
+            // Bold italic
+            text = text.replace(/\*\*\*(.*?)\*\*\*/g, '<span class="text-bold text-italic">$1</span>');
+            // Bold
+            text = text.replace(/\*\*(.*?)\*\*/g, '<span class="text-bold">$1</span>');
+            // Italic
+            text = text.replace(/\*(.*?)\*/g, '<span class="text-italic">$1</span>');
+            // Underline
+            text = text.replace(/__(.*?)__/g, '<span class="text-underline">$1</span>');
+            // Strikethrough
+            text = text.replace(/~~(.*?)~~/g, '<span style="text-decoration: line-through;">$1</span>');
+            // Spoiler (hidden until hover) - using class instead of inline handlers
+            text = text.replace(/\[spoiler\](.*?)\[\/spoiler\]/g, '<span class="spoiler-text" title="Hover to reveal">$1</span>');
+            // Highlight
+            text = text.replace(/\[highlight\](.*?)\[\/highlight\]/g, '<span style="background-color: rgba(250, 204, 21, 0.3); padding: 0.125rem 0.25rem; border-radius: 0.25rem;">$1</span>');
+            // Colors
+            text = text.replace(/\[red\](.*?)\[\/red\]/g, '<span class="color-red">$1</span>');
+            text = text.replace(/\[blue\](.*?)\[\/blue\]/g, '<span class="color-blue">$1</span>');
+            text = text.replace(/\[green\](.*?)\[\/green\]/g, '<span class="color-green">$1</span>');
+            text = text.replace(/\[yellow\](.*?)\[\/yellow\]/g, '<span class="color-yellow">$1</span>');
+            text = text.replace(/\[purple\](.*?)\[\/purple\]/g, '<span class="color-purple">$1</span>');
+            text = text.replace(/\[orange\](.*?)\[\/orange\]/g, '<span class="color-orange">$1</span>');
+            text = text.replace(/\[white\](.*?)\[\/white\]/g, '<span class="color-white">$1</span>');
+            text = text.replace(/\[gray\](.*?)\[\/gray\]/g, '<span class="color-gray">$1</span>');
+
+            return text;
+        }
+
+        function getModifier(stat) {
+            if (!stat || isNaN(stat)) return 0;
+            return Math.floor((stat - 10) / 2);
+        }
+
+        function formatModifier(stat) {
+            const mod = getModifier(stat);
+            return mod >= 0 ? `+${mod}` : `${mod}`;
+        }
+
+        // =====================================================================
+        // SECTION 3: CHARACTER SYSTEM (SHEET RENDERING + DERIVED STATS)
+        // =====================================================================
+        // Claude:
+        //   - updateCharacterSheet() is the main render function for the left
+        //     column (name, HP, AC, stats, currency, inventory, passive perception).
+        //   - If adding new derived stats (e.g. proficiency, initiative), compute
+        //     them here and render them in the DOM.
+
+        function updateCharacterSheet() {
+            const char = gameData.character;
+            if (!char) return;
+
+            const charNameEl = document.getElementById('charSheetName');
+            const charInfoEl = document.getElementById('charSheetInfo');
+            const hpEl = document.getElementById('hpDisplay');
+            const acEl = document.getElementById('acDisplay');
+            const headerInfoEl = document.getElementById('headerInfo');
+            const statsGrid = document.getElementById('statsGrid');
+
+            charNameEl.textContent = char.name;
+            charInfoEl.textContent = `Level ${char.level} ${char.race} ${char.class}`;
+            hpEl.textContent = `${char.hp}/${char.maxHp}`;
+            acEl.textContent = char.ac;
+
+            // World time in header (SECTION 4)
+            const wt = gameData.gameState.worldTime;
+            let timeText = '';
+            if (wt) {
+                const hh = String(wt.hour).padStart(2, '0');
+                timeText = ` • Day ${wt.day}, ${hh}:00`;
+            }
+
+            headerInfoEl.textContent = `Playing as ${char.name} • Level ${char.level} ${char.race} ${char.class}${timeText}`;
+
+            // Ability Scores - FIXED: Ensure stats exist with default values
+            if (!char.stats) {
+                char.stats = {
+                    strength: 10,
+                    dexterity: 10,
+                    constitution: 10,
+                    intelligence: 10,
+                    wisdom: 10,
+                    charisma: 10
+                };
+            }
+
+            statsGrid.innerHTML = '';
+            const stats = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'];
+            const statLabels = ['STR', 'DEX', 'CON', 'INT', 'WIS', 'CHA'];
+
+            stats.forEach((stat, i) => {
+                const value = char.stats[stat] || 10; // Fallback to 10 if undefined
+                statsGrid.innerHTML += `
+                    <div class="stat-box">
+                        <div class="stat-label">${statLabels[i]}</div>
+                        <div class="stat-value" style="font-size: 0.875rem;">
+                            ${value}
+                            <span style="font-size: 0.75rem; color: var(--slate-400); margin-left: 0.25rem;">
+                                (${formatModifier(value)})
+                            </span>
+                        </div>
+                    </div>
+                `;
+            });
+
+            // Passive Perception (Wisdom-based)
+            const wis = char.stats.wisdom || 10;
+            const passive = 10 + getModifier(wis);
+
+            // Proficiency Bonus (based on level)
+            const proficiency = Math.ceil(char.level / 4) + 1;
+
+            // Initiative (DEX-based)
+            const dex = char.stats.dexterity || 10;
+            const initiative = getModifier(dex);
+
+            const passiveEl = document.getElementById('passivePerception');
+            passiveEl.innerHTML = `
+                <div style="display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+                    <span>Passive Perception: ${passive}</span>
+                    <span>Proficiency: +${proficiency}</span>
+                    <span>Initiative: ${initiative >= 0 ? '+' + initiative : initiative}</span>
+                </div>
+            `;
+
+            // SECTION 8: Currency + inventory rendering
+            const currencyDisplay = document.getElementById('currencyDisplay');
+            const cur = char.currency || { gold: 0, silver: 0, copper: 0, platinum: 0 };
+            currencyDisplay.innerHTML = `
+                <div style="display: flex; justify-content: space-between; font-size: 0.875rem;">
+                    <span style="color: var(--yellow-400);">Gold:</span>
+                    <span style="font-weight: 600;">${cur.gold}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 0.875rem;">
+                    <span style="color: var(--slate-300);">Silver:</span>
+                    <span style="font-weight: 600;">${cur.silver}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 0.875rem;">
+                    <span style="color: var(--orange-400);">Copper:</span>
+                    <span style="font-weight: 600;">${cur.copper}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 0.875rem;">
+                    <span style="color: var(--blue-400);">Platinum:</span>
+                    <span style="font-weight: 600;">${cur.platinum}</span>
+                </div>
+            `;
+
+            // Use the new filterInventory function which supports search
+            const searchBox = document.getElementById('inventorySearch');
+            const searchTerm = searchBox ? searchBox.value.toLowerCase().trim() : '';
+            filterInventory(searchTerm);
+
+            updateQuestList();
+        }
+
+        // =====================================================================
+        // SECTION 9: QUEST ENGINE (UI + SIMPLE STORAGE)
+        // =====================================================================
+        // Claude:
+        //   - Currently quests are just an array of objects stored in gameData.quests:
+        //       { id, title, status, summary }
+        //   - The AI DM may send quests in its JSON response; we render them here.
+        //   - To add quest tracking logic (e.g. completion rules), add helpers that
+        //     update gameData.quests and then call updateQuestList().
+
+        function updateQuestList() {
+            const questListEl = document.getElementById('questList');
+            if (!questListEl) return;
+
+            const quests = gameData.quests || [];
+            const offers = gameData.questOffers || [];
+
+            // Filter to show only active and completed quests (not abandoned or failed)
+            const displayQuests = quests.filter(q => {
+                const status = (q.status || 'active').toLowerCase();
+                return status === 'active' || status === 'completed';
+            });
+
+            if (displayQuests.length === 0 && offers.length === 0) {
+                questListEl.innerHTML = '<p style="font-size: 0.875rem; color: var(--slate-400); text-align: center; padding: 0.75rem;">No active quests yet.</p>';
+                return;
+            }
+
+            let html = '';
+
+            // Show quest offers first
+            if (offers.length > 0) {
+                html += '<div style="margin-bottom: 1rem;"><h4 style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--blue-400); margin-bottom: 0.5rem; font-weight: 600;">Quest Offers</h4>';
+                html += offers.map((offer, index) => {
+                    return `
+                        <div class="quest-item" style="cursor: pointer; border-left: 3px solid var(--blue-400);" onclick="showQuestOfferModal(${index})">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem;">
+                                <span style="font-weight:500;">✨ ${offer.title || 'Quest Offer'}</span>
+                                <span style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--blue-400);">
+                                    NEW
+                                </span>
+                            </div>
+                            ${offer.giver ? `<p style="font-size:0.75rem;color:var(--slate-400);">From: ${offer.giver}</p>` : ''}
+                            ${offer.summary ? `<p style="font-size:0.8rem;color:var(--slate-300);">${offer.summary}</p>` : ''}
+                        </div>
+                    `;
+                }).join('');
+                html += '</div>';
+            }
+
+            // Show active/completed quests
+            if (displayQuests.length > 0) {
+                if (offers.length > 0) {
+                    html += '<div style="margin-top: 1rem;"><h4 style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--slate-400); margin-bottom: 0.5rem; font-weight: 600;">Your Quests</h4>';
+                }
+                html += displayQuests.map((q, originalIndex) => {
+                    // Find the original index in the full quests array
+                    const index = quests.indexOf(q);
+                    const status = (q.status || 'active').toLowerCase();
+                    let color = 'var(--yellow-400)';
+                    if (status === 'completed') color = 'var(--green-400)';
+                    if (status === 'failed') color = 'var(--red-400)';
+
+                    return `
+                        <div class="quest-item" style="cursor: pointer;" onclick="showQuestModal(${index})">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem;">
+                                <span style="font-weight:500;">${q.title || 'Quest'}</span>
+                                <span style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;color:${color};">
+                                    ${status}
+                                </span>
+                            </div>
+                            ${q.summary ? `<p style="font-size:0.8rem;color:var(--slate-300);">${q.summary}</p>` : ''}
+                        </div>
+                    `;
+                }).join('');
+                if (offers.length > 0) {
+                    html += '</div>';
+                }
+            }
+
+            questListEl.innerHTML = html;
+        }
+
+        function showQuestModal(index) {
+            const quests = gameData.quests || [];
+            if (!quests[index]) return;
+            const quest = quests[index];
+
+            const modal = document.getElementById('questModal');
+            const title = document.getElementById('questModalTitle');
+            const body = document.getElementById('questModalBody');
+
+            title.textContent = quest.title || 'Quest';
+
+            const status = (quest.status || 'active').toLowerCase();
+            let statusColor = 'var(--yellow-400)';
+            if (status === 'completed') statusColor = 'var(--green-400)';
+            if (status === 'failed') statusColor = 'var(--red-400)';
+
+            let html = `
+                <div class="property-row">
+                    <span class="property-label">Status</span>
+                    <span class="property-value" style="text-transform: uppercase; color: ${statusColor}; font-weight: 600;">${status}</span>
+                </div>
+            `;
+
+            if (quest.summary) {
+                html += `
+                    <div style="margin-top: 1rem;">
+                        <h4 style="font-size: 0.875rem; font-weight: 600; color: var(--slate-300); margin-bottom: 0.5rem;">Summary</h4>
+                        <p style="font-size: 0.875rem; color: var(--slate-200);">${quest.summary}</p>
+                    </div>
+                `;
+            }
+
+            if (quest.description) {
+                html += `
+                    <div style="margin-top: 1rem;">
+                        <h4 style="font-size: 0.875rem; font-weight: 600; color: var(--slate-300); margin-bottom: 0.5rem;">Details</h4>
+                        <p style="font-size: 0.875rem; color: var(--slate-200);">${quest.description}</p>
+                    </div>
+                `;
+            }
+
+            if (quest.rewards) {
+                html += `
+                    <div style="margin-top: 1rem;">
+                        <h4 style="font-size: 0.875rem; font-weight: 600; color: var(--slate-300); margin-bottom: 0.5rem;">Rewards</h4>
+                        <p style="font-size: 0.875rem; color: var(--slate-200);">${quest.rewards}</p>
+                    </div>
+                `;
+            }
+
+            // Add abandon button for active quests
+            if (status === 'active') {
+                html += `
+                    <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--slate-700);">
+                        <button class="btn btn-danger" style="width: 100%;" onclick="abandonQuest(${index})">
+                            Abandon Quest
+                        </button>
+                    </div>
+                `;
+            }
+
+            body.innerHTML = html;
+            modal.classList.remove('hidden');
+        }
+
+        // =====================================================================
+        // SECTION 9 (CONT.): QUEST OFFER & MANAGEMENT SYSTEM
+        // =====================================================================
+        // Claude:
+        //   - These functions handle accepting, declining, and abandoning quests
+        //   - Quest offers are automatically detected from AI responses
+        //   - Players can manage active quests through the UI
+
+        function abandonQuest(index) {
+            if (confirm('Are you sure you want to abandon this quest? You can pick it up again later if the opportunity arises.')) {
+                const quest = gameData.quests[index];
+                quest.status = 'abandoned';
+
+                gameData.messages.push({
+                    role: 'system',
+                    content: `<span class="quest-text">You abandoned the quest: ${quest.title}</span>`
+                });
+
+                updateQuestList();
+                updateMessageLog();
+                document.getElementById('questModal').classList.add('hidden');
+                persistGame();
+            }
+        }
+
+        function acceptQuestOffer(index) {
+            const offer = gameData.questOffers[index];
+            if (!offer) return;
+
+            // Add to active quests
+            gameData.quests.push({
+                title: offer.title,
+                summary: offer.summary,
+                description: offer.description,
+                rewards: offer.rewards,
+                giver: offer.giver,
+                status: 'active'
+            });
+
+            // Remove from offers
+            gameData.questOffers.splice(index, 1);
+
+            // Add system message
+            gameData.messages.push({
+                role: 'system',
+                content: `<span class="quest-text">Quest Accepted: ${offer.title}</span>`
+            });
+
+            updateQuestList();
+            updateMessageLog();
+            document.getElementById('questModal').classList.add('hidden');
+            persistGame();
+        }
+
+        function declineQuestOffer(index) {
+            const offer = gameData.questOffers[index];
+            if (!offer) return;
+
+            // Remove from offers
+            gameData.questOffers.splice(index, 1);
+
+            // Add system message
+            gameData.messages.push({
+                role: 'system',
+                content: `<span class="quest-text">You declined the quest: ${offer.title}</span>`
+            });
+
+            updateQuestList();
+            updateMessageLog();
+            document.getElementById('questModal').classList.add('hidden');
+            persistGame();
+        }
+
+        function showQuestOfferModal(index) {
+            const offer = gameData.questOffers[index];
+            if (!offer) return;
+
+            const modal = document.getElementById('questModal');
+            const title = document.getElementById('questModalTitle');
+            const body = document.getElementById('questModalBody');
+
+            title.textContent = offer.title || 'Quest Offer';
+
+            let html = `
+                <div class="property-row">
+                    <span class="property-label">Quest Giver</span>
+                    <span class="property-value">${offer.giver || 'Unknown'}</span>
+                </div>
+            `;
+
+            if (offer.summary) {
+                html += `
+                    <div style="margin-top: 1rem;">
+                        <h4 style="font-size: 0.875rem; font-weight: 600; color: var(--slate-300); margin-bottom: 0.5rem;">Summary</h4>
+                        <p style="font-size: 0.875rem; color: var(--slate-200);">${offer.summary}</p>
+                    </div>
+                `;
+            }
+
+            if (offer.description) {
+                html += `
+                    <div style="margin-top: 1rem;">
+                        <h4 style="font-size: 0.875rem; font-weight: 600; color: var(--slate-300); margin-bottom: 0.5rem;">Details</h4>
+                        <p style="font-size: 0.875rem; color: var(--slate-200);">${offer.description}</p>
+                    </div>
+                `;
+            }
+
+            if (offer.rewards) {
+                html += `
+                    <div style="margin-top: 1rem;">
+                        <h4 style="font-size: 0.875rem; font-weight: 600; color: var(--slate-300); margin-bottom: 0.5rem;">Rewards</h4>
+                        <p style="font-size: 0.875rem; color: var(--slate-200);">${offer.rewards}</p>
+                    </div>
+                `;
+            }
+
+            // Add accept/decline buttons
+            html += `
+                <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--slate-700); display: flex; gap: 0.5rem;">
+                    <button class="btn btn-primary" style="flex: 1;" onclick="acceptQuestOffer(${index})">
+                        Accept Quest
+                    </button>
+                    <button class="btn btn-secondary" style="flex: 1;" onclick="declineQuestOffer(${index})">
+                        Decline
+                    </button>
+                </div>
+            `;
+
+            body.innerHTML = html;
+            modal.classList.remove('hidden');
+        }
+
+        function parseQuestOffers(aiResponse) {
+            // This function detects when the AI mentions a quest offer in the narrative
+            // Look for patterns like quest offers, mission proposals, etc.
+
+            if (!aiResponse || typeof aiResponse !== 'string') return;
+
+            const lowerResponse = aiResponse.toLowerCase();
+
+            // Keywords that suggest a quest is being offered
+            const questKeywords = [
+                'quest', 'mission', 'task', 'job', 'favor', 'request',
+                'needs help', 'could you', 'would you', 'will you help',
+                'looking for someone', 'seeking assistance'
+            ];
+
+            // Check if any quest keywords are present
+            const hasQuestKeyword = questKeywords.some(keyword => lowerResponse.includes(keyword));
+
+            if (!hasQuestKeyword) return;
+
+            // Additional check for quest offer patterns
+            const questOfferPatterns = [
+                /(?:offer|give|propose)(?:s)?\s+(?:you\s+)?(?:a\s+)?(?:quest|mission|task|job)/i,
+                /(?:will|would|could)\s+you\s+(?:help|assist|aid)/i,
+                /(?:i|we)\s+need\s+(?:you|your help|assistance)/i,
+                /(?:looking for|seeking)\s+(?:someone|adventurers?)/i
+            ];
+
+            const isQuestOffer = questOfferPatterns.some(pattern => pattern.test(aiResponse));
+
+            if (isQuestOffer) {
+                // Show notification to player
+                const notification = document.createElement('div');
+                notification.style.cssText = `
+                    position: fixed;
+                    top: 1rem;
+                    right: 1rem;
+                    background-color: var(--blue-600);
+                    color: white;
+                    padding: 1rem;
+                    border-radius: 0.5rem;
+                    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+                    z-index: 10000;
+                    animation: slideIn 0.3s ease-out;
+                `;
+                notification.innerHTML = `
+                    <div style="font-weight: 600; margin-bottom: 0.5rem;">✨ Quest Opportunity Detected!</div>
+                    <div style="font-size: 0.875rem; margin-bottom: 0.75rem;">Someone seems to be offering you a quest. Check your Quest Log to manage quest offers.</div>
+                `;
+                document.body.appendChild(notification);
+
+                setTimeout(() => {
+                    notification.style.animation = 'slideOut 0.3s ease-in';
+                    setTimeout(() => notification.remove(), 300);
+                }, 4000);
+            }
+        }
+
+        // =====================================================================
+        // SECTION 10 (CONT.): ROLL HISTORY DISPLAY
+        // =====================================================================
+        // Claude:
+        //   - updateRollHistory() renders recent dice rolls in a dedicated panel.
+        //   - Roll history is capped at 20 entries and stored in gameData.rollHistory.
+
+        function updateRollHistory() {
+            const rollHistoryEl = document.getElementById('rollHistoryList');
+            if (!rollHistoryEl) return;
+
+            const rolls = gameData.rollHistory || [];
+            if (rolls.length === 0) {
+                rollHistoryEl.innerHTML = '<p style="font-size: 0.875rem; color: var(--slate-400); text-align: center; padding: 0.75rem;">No rolls yet.</p>';
+                return;
+            }
+
+            rollHistoryEl.innerHTML = rolls.slice(0, 10).map(r => {
+                let rollDisplay = r.rolls.join(', ');
+                if (r.advantageMode === 'advantage' || r.advantageMode === 'disadvantage') {
+                    const chosen = r.advantageMode === 'advantage' ? Math.max(...r.rolls) : Math.min(...r.rolls);
+                    rollDisplay = `${r.rolls[0]}, ${r.rolls[1]} → ${chosen}`;
+                }
+                const modText = r.modifier >= 0 ? `+${r.modifier}` : `${r.modifier}`;
+                let advText = '';
+                if (r.advantageMode === 'advantage') advText = ' (ADV)';
+                if (r.advantageMode === 'disadvantage') advText = ' (DIS)';
+
+                return `
+                    <div style="font-size: 0.8rem; padding: 0.25rem 0; border-bottom: 1px solid var(--slate-700);">
+                        <div style="display: flex; justify-content: space-between;">
+                            <span style="color: var(--slate-300);">${r.type}${advText}</span>
+                            <span style="font-weight: 600; color: var(--blue-400);">${r.result}</span>
+                        </div>
+                        <div style="color: var(--slate-500); font-size: 0.75rem;">
+                            [${rollDisplay}] ${modText}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // =====================================================================
+        // SECTION 7: COMBAT FRAMEWORK (DISPLAY-LEVEL ONLY)
+        // =====================================================================
+        // Claude:
+        //   - Combat is primarily managed by the AI DM (DeepSeek) via:
+        //       gameData.gameState.inCombat
+        //       gameData.gameState.enemies (name, hp, maxHp, ac)
+        //       gameData.gameState.currentTurn (string name)
+        //   - This function only RENDERS combat state. If you add local combat
+        //     mechanics, they should still respect and sync with these fields.
+
+        function updateGameState() {
+            const state = gameData.gameState;
+            const locationCard = document.getElementById('locationCard');
+            const locationNameEl = document.getElementById('locationName');
+            const combatBadge = document.getElementById('combatBadge');
+            const enemiesCard = document.getElementById('enemiesCard');
+            const enemiesList = document.getElementById('enemiesList');
+
+            // Location
+            if (state.location) {
+                locationCard.classList.remove('hidden');
+                locationNameEl.textContent = state.location;
+            } else {
+                locationCard.classList.add('hidden');
+            }
+
+            // Combat & enemies
+            if (state.inCombat) {
+                combatBadge.classList.remove('hidden');
+
+                if (state.enemies && state.enemies.length > 0) {
+                    enemiesCard.classList.remove('hidden');
+                    enemiesList.innerHTML = state.enemies.map(enemy => `
+                        <div class="enemy-card">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                <p style="font-weight: 600;">${enemy.name}</p>
+                                ${state.currentTurn === enemy.name ? '<span class="badge badge-turn">THEIR TURN</span>' : ''}
+                            </div>
+                            <div style="display: flex; gap: 1rem; font-size: 0.875rem;">
+                                <span style="color: var(--slate-300);">AC ${enemy.ac}</span>
+                                <span style="color: var(--red-400);">HP ${enemy.hp}/${enemy.maxHp}</span>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    enemiesCard.classList.add('hidden');
+                    enemiesList.innerHTML = '';
+                }
+            } else {
+                combatBadge.classList.add('hidden');
+                enemiesCard.classList.add('hidden');
+                enemiesList.innerHTML = '';
+            }
+
+            // Refresh header/time via character sheet
+            updateCharacterSheet();
+        }
+
+        // =====================================================================
+        // SECTION 8: INVENTORY & ITEM ARCHITECTURE (MODAL + NORMALIZATION)
+        // =====================================================================
+        // Claude:
+        //   - normalizeInventory() enforces quantity >= 1 and removes duplicate
+        //     unique items (isUnique: true).
+        //   - showItemModal() is read-only display; if you add item usage
+        //     (consumption, equip/unequip), add a new UI path and update the
+        //     inventory + re-render.
+
+        function showItemModal(index) {
+            try {
+                const char = gameData.character;
+                if (!char || !char.inventory) {
+                    console.error('No character or inventory found');
+                    return;
+                }
+
+                const item = char.inventory[index];
+                if (!item) {
+                    console.error('Item not found at index:', index);
+                    return;
+                }
+
+                const modal = document.getElementById('itemModal');
+                const title = document.getElementById('itemModalTitle');
+                const body = document.getElementById('itemModalBody');
+
+                if (!modal || !title || !body) {
+                    console.error('Modal elements not found');
+                    return;
+                }
+
+                title.textContent = item.name || 'Unknown Item';
+
+                // Build item details
+                let html = '<div style="margin-bottom: 1rem;">';
+
+                if (item.rarity) {
+                    html += `<div class="property-row"><span style="color: var(--slate-400);">Rarity</span><span style="text-transform: capitalize; font-weight: 600;">${item.rarity}</span></div>`;
+                }
+                if (item.type) {
+                    html += `<div class="property-row"><span style="color: var(--slate-400);">Type</span><span style="font-weight: 600;">${item.type}</span></div>`;
+                }
+                if (item.quantity && item.quantity > 1) {
+                    html += `<div class="property-row"><span style="color: var(--slate-400);">Quantity</span><span style="font-weight: 600;">${item.quantity}</span></div>`;
+                }
+                if (item.weight) {
+                    html += `<div class="property-row"><span style="color: var(--slate-400);">Weight</span><span style="font-weight: 600;">${item.weight} lbs</span></div>`;
+                }
+                if (item.value) {
+                    html += `<div class="property-row"><span style="color: var(--slate-400);">Value</span><span style="font-weight: 600;">${item.value}</span></div>`;
+                }
+                if (item.damage) {
+                    html += `<div class="property-row"><span style="color: var(--slate-400);">Damage</span><span style="font-weight: 600; color: var(--red-400);">${item.damage}</span></div>`;
+                }
+                if (item.armorClass) {
+                    html += `<div class="property-row"><span style="color: var(--slate-400);">Armor Class</span><span style="font-weight: 600; color: var(--blue-400);">${item.armorClass}</span></div>`;
+                }
+                if (item.properties && Array.isArray(item.properties) && item.properties.length > 0) {
+                    html += `<div class="property-row"><span style="color: var(--slate-400);">Properties</span><span style="font-weight: 600;">${item.properties.join(', ')}</span></div>`;
+                }
+
+                html += '</div>';
+
+                if (item.description) {
+                    html += `<div style="margin-top: 1rem; padding: 0.75rem; background-color: rgba(100, 116, 139, 0.1); border-radius: 0.375rem;">
+                        <h4 style="font-size: 0.875rem; font-weight: 600; color: var(--slate-300); margin-bottom: 0.5rem;">Description</h4>
+                        <p style="font-size: 0.875rem; color: var(--slate-200); line-height: 1.5;">${item.description}</p>
+                    </div>`;
+                }
+
+                body.innerHTML = html;
+                modal.classList.remove('hidden');
+            } catch (error) {
+                console.error('Error displaying item modal:', error);
+            }
+        }
+
+        function normalizeInventory(items) {
+            if (!Array.isArray(items)) return [];
+            const uniqueSet = new Set();
+            const result = [];
+
+            for (let item of items) {
+                if (!item || !item.name) continue;
+
+                if (!item.quantity || item.quantity < 1) {
+                    item.quantity = 1;
+                }
+
+                if (item.isUnique) {
+                    const key = item.name.toLowerCase();
+                    if (uniqueSet.has(key)) {
+                        // Skip duplicate unique item
+                        continue;
+                    }
+                    uniqueSet.add(key);
+                }
+                result.push(item);
+            }
+            return result;
+        }
+
+        // =====================================================================
+        // SECTION 5: EVENT / ENCOUNTER ENGINE (MESSAGES + AI DM CONNECTION)
+        // =====================================================================
+        // Claude:
+        //   - updateMessageLog() renders conversation history (player + DM).
+        //   - callAI() is the DeepSeek connector; both generateOpening() and
+        //     sendAction() use it.
+        //   - generateOpening() asks the DM for starting equipment + intro scene.
+        //   - sendAction() sends each player action to the DM and applies JSON
+        //     updates (stats, inventory, combat, quests, worldTime).
+
+        function updateMessageLog() {
+            const log = document.getElementById('messageLog');
+            log.innerHTML = gameData.messages.map(msg => {
+                let cls = 'message-assistant';
+                if (msg.role === 'user') cls = 'message-user';
+                else if (msg.role === 'system') cls = 'message-system';
+
+                return `
+                    <div class="${cls}">
+                        <p class="message-role">${msg.role === 'user' ? 'You' : msg.role === 'system' ? 'System' : 'Dungeon Master'}</p>
+                        <p class="message-content">${parseFormattedText(msg.content)}</p>
+                    </div>
+                `;
+            }).join('');
+
+            log.scrollTop = log.scrollHeight;
+        }
+
+        // =====================================================================
+        // SECTION 10: DICE + SKILL CHECK SYSTEM
+        // =====================================================================
+        // Claude:
+        //   - rollDice(sides) = simple RNG.
+        //   - rollExpression(formula) currently handles "XdY+Z" (single term).
+        //   - performSkillCheck(skillName) logs a system message with the result.
+        //   - If you add advantage/disadvantage or multiple terms, expand
+        //     rollExpression and adjust callers.
+
+        function rollDice(sides) {
+            return Math.floor(Math.random() * sides) + 1;
+        }
+
+        function rollExpression(formula, advantageMode = 'normal') {
+            const trimmed = String(formula || '').trim();
+            const match = trimmed.match(/^(\d*)d(\d+)([+-]\d+)?$/i);
+            if (!match) {
+                return { total: 0, rolls: [], modifier: 0, formula: trimmed, error: true };
+            }
+            const count = parseInt(match[1] || '1', 10);
+            const size = parseInt(match[2], 10);
+            const mod = match[3] ? parseInt(match[3], 10) : 0;
+            const rolls = [];
+
+            // Handle advantage/disadvantage for d20 rolls
+            if (size === 20 && count === 1 && advantageMode !== 'normal') {
+                const roll1 = rollDice(size);
+                const roll2 = rollDice(size);
+                rolls.push(roll1, roll2);
+                const chosenRoll = advantageMode === 'advantage' ? Math.max(roll1, roll2) : Math.min(roll1, roll2);
+                return {
+                    total: chosenRoll + mod,
+                    rolls: [roll1, roll2],
+                    chosenRoll,
+                    modifier: mod,
+                    formula: trimmed,
+                    advantageMode,
+                    error: false
+                };
+            }
+
+            // Normal rolling
+            for (let i = 0; i < count; i++) {
+                rolls.push(rollDice(size));
+            }
+            const sum = rolls.reduce((a, b) => a + b, 0);
+            return { total: sum + mod, rolls, modifier: mod, formula: trimmed, advantageMode: 'normal', error: false };
+        }
+
+        function performSkillCheck(skillName, advantageMode = 'normal') {
+            const char = gameData.character;
+            if (!char || !char.stats) return;
+
+            const skill = String(skillName || '').toLowerCase();
+            let abilityKey = 'wisdom';
+            let label = 'Skill Check';
+
+            if (skill === 'perception') {
+                abilityKey = 'wisdom';
+                label = 'Perception Check';
+            }
+
+            const abilityScore = char.stats[abilityKey] || 10;
+            const mod = getModifier(abilityScore);
+            const roll = rollExpression('1d20', advantageMode);
+            if (roll.error) return;
+
+            const total = roll.total + mod;
+            const modText = mod >= 0 ? `+${mod}` : `${mod}`;
+
+            let message = `${label}`;
+            if (advantageMode === 'advantage') {
+                message += ` (Advantage): rolled ${roll.rolls[0]} and ${roll.rolls[1]}, chose ${roll.chosenRoll} ${modText} = ${total}`;
+            } else if (advantageMode === 'disadvantage') {
+                message += ` (Disadvantage): rolled ${roll.rolls[0]} and ${roll.rolls[1]}, chose ${roll.chosenRoll} ${modText} = ${total}`;
+            } else {
+                message += `: rolled ${roll.rolls[0]} ${modText} = ${total}`;
+            }
+
+            gameData.messages.push({ role: 'system', content: message });
+
+            // Add to roll history
+            gameData.rollHistory.unshift({
+                type: label,
+                result: total,
+                rolls: roll.rolls,
+                modifier: mod,
+                advantageMode,
+                timestamp: new Date().toISOString()
+            });
+            if (gameData.rollHistory.length > 20) {
+                gameData.rollHistory = gameData.rollHistory.slice(0, 20);
+            }
+
+            updateMessageLog();
+            updateRollHistory();
+            persistGame();
+
+            return { total, roll, mod };
+        }
+
+        // =====================================================================
+        // SECTION 4: WORLD GENERATION / TIME SYSTEM (LIGHTWEIGHT)
+        // =====================================================================
+        // Claude:
+        //   - worldTime = { day, hour } lives in gameData.gameState.
+        //   - advanceWorldTime(hours) increments the clock; sendAction() calls it
+        //     when the DM does not explicitly override worldTime.
+        //   - The DM can also send a "worldTime" object in JSON.
+
+        function advanceWorldTime(hours) {
+            const wt = gameData.gameState.worldTime || { day: 1, hour: 8 };
+            let totalHours = wt.day * 24 + wt.hour + hours;
+            if (totalHours < 0) totalHours = 0;
+            const day = Math.max(1, Math.floor(totalHours / 24));
+            const hour = totalHours % 24;
+            gameData.gameState.worldTime = { day, hour };
+        }
+
+        // =====================================================================
+        // SECTION 2 (CONT.): AI CALL HELPER (DEEPSEEK CONNECTOR)
+        // =====================================================================
+
+        async function callAI(systemPrompt, userMessage) {
+            const history = gameData.messages.slice(-10).map(function(msg) {
+                return {
+                    role: msg.role === 'system' ? 'system' : msg.role,
+                    content: msg.content
+                };
+            });
+
+            const base = (gameData.apiConfig.baseURL || '').replace(/\/+$/, '');
+            let url;
+            if (base.endsWith('/v1')) {
+                url = `${base}/chat/completions`;
+            } else {
+                url = `${base}/v1/chat/completions`;
+            }
+
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${gameData.apiConfig.apiKey}`
+                },
+                body: JSON.stringify({
+                    model: gameData.apiConfig.model,
+                    messages: [
+                        { role: 'system', content: systemPrompt },
+                        ...history,
+                        { role: 'user', content: userMessage }
+                    ],
+                    temperature: 0.8
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`API request failed: ${response.status}`);
+            }
+
+            const data = await response.json();
+            let content =
+                (data.choices &&
+                 data.choices[0] &&
+                 data.choices[0].message &&
+                 data.choices[0].message.content) ||
+                '';
+            content = content.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+
+            return JSON.parse(content);
+        }
+
+        // =====================================================================
+        // SECTION 5 (CONT.): OPENING GENERATION
+        // =====================================================================
+
+        function getDefaultStartingEquipment(className, level) {
+            const common = [
+                { name: 'Backpack', type: 'Equipment', quantity: 1, description: 'A sturdy leather backpack.' },
+                { name: 'Waterskin', type: 'Equipment', quantity: 1, description: 'Holds water for your journey.' },
+                { name: 'Rations', type: 'Consumable', quantity: 5, description: 'Travel rations. Restores a small amount of health.' },
+                { name: 'Bedroll', type: 'Equipment', quantity: 1, description: 'For resting during long journeys.' },
+                { name: 'Rope (50 ft)', type: 'Equipment', quantity: 1, description: 'Hemp rope, useful for climbing.' }
+            ];
+
+            const classEquipment = {
+                'Fighter': [
+                    { name: 'Longsword', type: 'Weapon', damage: '1d8', quantity: 1, description: 'A versatile blade.' },
+                    { name: 'Shield', type: 'Armor', armorClass: '+2', quantity: 1, description: 'Wooden shield reinforced with iron.' },
+                    { name: 'Chain Mail', type: 'Armor', armorClass: '16', quantity: 1, description: 'Heavy armor providing excellent protection.' }
+                ],
+                'Wizard': [
+                    { name: 'Spellbook', type: 'Equipment', quantity: 1, rarity: 'Uncommon', description: 'Contains your known spells.' },
+                    { name: 'Component Pouch', type: 'Equipment', quantity: 1, description: 'Holds spell components.' },
+                    { name: 'Quarterstaff', type: 'Weapon', damage: '1d6', quantity: 1, description: 'A simple walking staff.' }
+                ],
+                'Rogue': [
+                    { name: 'Shortsword', type: 'Weapon', damage: '1d6', quantity: 1, description: 'Light and quick.' },
+                    { name: 'Dagger', type: 'Weapon', damage: '1d4', quantity: 2, description: 'Small concealed blade.' },
+                    { name: 'Thieves\' Tools', type: 'Equipment', quantity: 1, description: 'For picking locks and disarming traps.' },
+                    { name: 'Leather Armor', type: 'Armor', armorClass: '11', quantity: 1, description: 'Light armor for stealth.' }
+                ],
+                'Cleric': [
+                    { name: 'Mace', type: 'Weapon', damage: '1d6', quantity: 1, description: 'A holy weapon.' },
+                    { name: 'Shield', type: 'Armor', armorClass: '+2', quantity: 1, description: 'Blessed shield.' },
+                    { name: 'Holy Symbol', type: 'Equipment', quantity: 1, description: 'Focus for divine spells.' },
+                    { name: 'Prayer Book', type: 'Equipment', quantity: 1, description: 'Contains prayers and devotions.' }
+                ],
+                'Ranger': [
+                    { name: 'Longbow', type: 'Weapon', damage: '1d8', quantity: 1, properties: ['Range 150/600'], description: 'Hunting bow.' },
+                    { name: 'Arrows', type: 'Ammunition', quantity: 20, description: 'Fletched arrows.' },
+                    { name: 'Shortsword', type: 'Weapon', damage: '1d6', quantity: 1, description: 'Backup weapon.' }
+                ],
+                'Paladin': [
+                    { name: 'Longsword', type: 'Weapon', damage: '1d8', quantity: 1, description: 'Holy blade.' },
+                    { name: 'Shield', type: 'Armor', armorClass: '+2', quantity: 1, description: 'Sacred shield.' },
+                    { name: 'Chain Mail', type: 'Armor', armorClass: '16', quantity: 1, description: 'Blessed armor.' },
+                    { name: 'Holy Symbol', type: 'Equipment', quantity: 1, description: 'Symbol of your oath.' }
+                ],
+                'Barbarian': [
+                    { name: 'Greataxe', type: 'Weapon', damage: '1d12', quantity: 1, description: 'Massive two-handed axe.' },
+                    { name: 'Handaxe', type: 'Weapon', damage: '1d6', quantity: 2, description: 'Throwing axes.' }
+                ],
+                'Bard': [
+                    { name: 'Rapier', type: 'Weapon', damage: '1d8', quantity: 1, description: 'Elegant dueling sword.' },
+                    { name: 'Lute', type: 'Equipment', quantity: 1, description: 'Musical instrument and spell focus.' },
+                    { name: 'Leather Armor', type: 'Armor', armorClass: '11', quantity: 1, description: 'Comfortable armor.' }
+                ],
+                'Warlock': [
+                    { name: 'Quarterstaff', type: 'Weapon', damage: '1d6', quantity: 1, description: 'Arcane focus staff.' },
+                    { name: 'Leather Armor', type: 'Armor', armorClass: '11', quantity: 1, description: 'Light protection.' },
+                    { name: 'Component Pouch', type: 'Equipment', quantity: 1, description: 'Spell components.' }
+                ],
+                'Sorcerer': [
+                    { name: 'Dagger', type: 'Weapon', damage: '1d4', quantity: 2, description: 'Simple blade.' },
+                    { name: 'Arcane Focus', type: 'Equipment', quantity: 1, description: 'Crystal for channeling magic.' },
+                    { name: 'Component Pouch', type: 'Equipment', quantity: 1, description: 'Spell components.' }
+                ]
+            };
+
+            const classItems = classEquipment[className] || classEquipment['Fighter'];
+
+            // Add healing potions based on level
+            const potions = Math.max(2, Math.floor(level / 2));
+            classItems.push({
+                name: 'Potion of Healing',
+                type: 'Potion',
+                quantity: potions,
+                description: 'Heals 2d4+2 hit points when consumed.',
+                rarity: 'Common'
+            });
+
+            return [...common, ...classItems];
+        }
+
+        async function generateOpening() {
+            const char = gameData.character;
+            const prefs = gameData.adventurePreferences;
+
+            const systemPrompt = `You are an expert D&D Dungeon Master with complete control over the campaign.
+
+You have FULL AUTHORITY to:
+- Adjust character stats, HP, AC, inventory, and currency
+- Grant starting equipment and money based on backstory and level
+- Define the starting location and tone
+- Set up initial quests
+
+CHARACTER INFO:
+- Name: ${char.name}
+- Race: ${char.race}
+- Class: ${char.class}
+- Level: ${char.level}
+- Backstory: ${char.backstory}
+- Ability Scores: STR ${char.stats.strength}, DEX ${char.stats.dexterity}, CON ${char.stats.constitution}, INT ${char.stats.intelligence}, WIS ${char.stats.wisdom}, CHA ${char.stats.charisma}
+
+ADVENTURE PREFERENCES:
+- Setting: ${prefs.setting}
+- Tone: ${prefs.tone}
+- Difficulty: ${prefs.difficulty}
+- Pacing: ${prefs.pacing}${prefs.customStory ? `\n- Custom Story/Roleplay: ${prefs.customStory}` : ''}
+
+IMPORTANT CREATIVE GUIDELINES:
+❌ ABSOLUTELY FORBIDDEN NAMES - These names are BANNED and will be automatically rejected:
+   PRIMARY BLACKLIST: Elara, Lyra, Valerius, Thornwood, Ravencrest, Shadowmere, Silverwood, Aric, Thorne, Kael, Seraphina, Isolde, Morgana, Zephyr, Aria, Luna, Raven
+
+   SECONDARY BLACKLIST: Aldric, Cedric, Garreth, Alaric, Elowen, Althea, Evelyn, Lucian, Damien, Tristan, Adrian, Draven
+
+   BANNED PREFIXES: Never start names with Silver-, Shadow-, Raven-, Thorn-, Moon-, Dark-, Night-, Storm-, Iron-, Blood-
+
+✅ CREATIVE ALTERNATIVES - Use distinctive, memorable names like:
+   - Classic Fantasy: Brynn, Cassian, Wylla, Torin, Mira, Garrick, Zara, Orin, Petra, Halden
+   - Dark Fantasy: Silas, Vex, Ashlyn, Corvin, Nyx, Bexley, Grimm, Vera, Dorian
+   - Unique Compounds: Windmere, Copperdale, Ashbourne, Frostholm, Redbrook
+
+✅ NAME CREATION RULES:
+   - Never rename the player character or reuse their exact name for any NPC, location, or item.
+   1. Combine unexpected elements (Copper + dale, not Silver + wood)
+   2. Use hard consonants for strength (K, G, B, D)
+   3. Mix cultural influences creatively
+   4. Avoid obvious fantasy clichés
+
+IF YOU USE ANY BLACKLISTED NAME, YOUR RESPONSE WILL BE REJECTED AND REGENERATED.
+
+You MUST respond with a single JSON object with at least:
+{
+  "narrative": "Opening story text with optional formatting like **bold**, *italic*, [red]colored text[/red]...",
+  "characterUpdates": {
+    "inventory": [
+      {
+        "name": "Longsword",
+        "type": "Weapon",
+        "damage": "1d8",
+        "quantity": 1,
+        "description": "A well-balanced blade"
+      },
+      {
+        "name": "Potion of Healing",
+        "type": "Potion",
+        "quantity": 2,
+        "rarity": "Common",
+        "description": "Heals 2d4+2 hit points"
+      },
+      {
+        "name": "Backpack",
+        "type": "Equipment",
+        "quantity": 1,
+        "description": "Sturdy leather backpack"
+      }
+    ],
+    "currency": {
+      "gold": 15,
+      "silver": 30,
+      "copper": 50,
+      "platinum": 0
+    },
+    "hp": 12,
+    "maxHp": 12,
+    "ac": 14,
+    "stats": {
+      "strength": ${char.stats.strength},
+      "dexterity": ${char.stats.dexterity},
+      "constitution": ${char.stats.constitution},
+      "intelligence": ${char.stats.intelligence},
+      "wisdom": ${char.stats.wisdom},
+      "charisma": ${char.stats.charisma}
+    }
+  },
+  "location": "Starting location name"
+}
+
+INVENTORY REQUIREMENTS:
+- MUST include at least 5-8 items appropriate for the character's class and level
+- Include weapons, armor, equipment, and consumables
+- Each item MUST have: "name", "type", "quantity", "description"
+- Optional fields: "damage", "armorClass", "rarity", "properties", "weight", "value"
+- For consumables/potions: set type to "Potion" or "Consumable"
+
+You MAY ALSO include (optional but recommended):
+- "inCombat": false,
+- "enemies": [ { "name": "...", "hp": 10, "maxHp": 10, "ac": 12 } ],
+- "quests": [
+    {
+      "id": "quest-1",
+      "title": "Quest Title",
+      "status": "active",
+      "summary": "Short description of the quest."
+    }
+  ],
+- "worldTime": { "day": 1, "hour": 8 }
+
+Your ENTIRE response must be ONLY this JSON object, with no extra commentary.`;
+
+            try {
+                const aiResponse = await callAI(systemPrompt, "Generate starting equipment, currency, opening narrative, and (optionally) starting quests for this character. IMPORTANT: The character MUST have a few starting items depending on their backstory. Remember to avoid overused fantasy names!");
+
+                console.log('AI Response:', aiResponse);
+
+                // Sanitize any blacklisted names consistently across narrative, location, quests, enemies, items, and existing state
+                await sanitizeAIResponseNames(aiResponse, 'opening scene');
+
+                // Character updates
+                if (aiResponse.characterUpdates) {
+                    if (aiResponse.characterUpdates.inventory) {
+                        const normalized = normalizeInventory(aiResponse.characterUpdates.inventory);
+                        console.log('Normalized inventory:', normalized);
+                        gameData.character.inventory = normalized;
+
+                        // Fallback: If no items after normalization, add basic starting equipment
+                        if (gameData.character.inventory.length === 0) {
+                            console.warn('No inventory items from AI, adding fallback equipment');
+                            gameData.character.inventory = getDefaultStartingEquipment(char.class, char.level);
+                        }
+                    } else {
+                        console.warn('No inventory in AI response, adding default equipment');
+                        gameData.character.inventory = getDefaultStartingEquipment(char.class, char.level);
+                    }
+                    if (aiResponse.characterUpdates.currency) {
+                        gameData.character.currency = Object.assign(
+                            {},
+                            gameData.character.currency,
+                            aiResponse.characterUpdates.currency
+                        );
+                    }
+                    if (aiResponse.characterUpdates.hp !== undefined) {
+                        gameData.character.hp = aiResponse.characterUpdates.hp;
+                    }
+                    if (aiResponse.characterUpdates.maxHp !== undefined) {
+                        gameData.character.maxHp = aiResponse.characterUpdates.maxHp;
+                    }
+                    if (aiResponse.characterUpdates.ac !== undefined) {
+                        gameData.character.ac = aiResponse.characterUpdates.ac;
+                    }
+                    if (aiResponse.characterUpdates.stats) {
+                        // Ensure stats are preserved - don't override with undefined values
+                        gameData.character.stats = Object.assign(
+                            {},
+                            gameData.character.stats,
+                            aiResponse.characterUpdates.stats
+                        );
+                    }
+                }
+
+                // Game state
+                if (aiResponse.location) gameData.gameState.location = aiResponse.location;
+                if (aiResponse.inCombat !== undefined) gameData.gameState.inCombat = aiResponse.inCombat;
+                if (Array.isArray(aiResponse.enemies)) gameData.gameState.enemies = aiResponse.enemies;
+                if (aiResponse.worldTime) gameData.gameState.worldTime = aiResponse.worldTime;
+
+                // Quests
+                if (Array.isArray(aiResponse.quests)) {
+                    gameData.quests = aiResponse.quests;
+                    localStorage.setItem('dnd_quests', JSON.stringify(gameData.quests));
+                }
+
+                                let narrative = aiResponse.narrative;
+
+                // Narrative
+                gameData.messages.push({
+                    role: 'assistant',
+                    content: narrative
+                });
+
+                gameData.hasOpening = true;
+                localStorage.setItem('dnd_has_opening', 'true');
+                persistGame();
+
+                // Show game screen
+                document.getElementById('initScreen').classList.add('hidden');
+                document.getElementById('gameScreen').classList.remove('hidden');
+                updateCharacterSheet();
+                updateGameState();
+                updateMessageLog();
+                updateRollHistory();
+
+            } catch (error) {
+                console.error('Error generating opening:', error);
+                alert('Error generating opening. Please try again.');
+                document.getElementById('initScreen').classList.add('hidden');
+                document.getElementById('characterCreation').classList.remove('hidden');
+            }
+        }
+
+        // =====================================================================
+        // SECTION 5 (CONT.): MAIN ACTION LOOP – PLAYER → DM JSON → UPDATES
+        // =====================================================================
+
+        async function sendAction(action) {
+            const userMessage = { role: 'user', content: action };
+            gameData.messages.push(userMessage);
+            updateMessageLog();
+
+            // Loading placeholder
+            const log = document.getElementById('messageLog');
+            log.innerHTML += '<div class="message-assistant"><p class="message-role">Dungeon Master</p><div class="spinner"></div></div>';
+            log.scrollTop = log.scrollHeight;
+
+            document.getElementById('sendBtn').disabled = true;
+            document.getElementById('actionInput').disabled = true;
+
+            const char = gameData.character;
+            const state = gameData.gameState;
+
+            const systemPrompt = `You are an expert D&D Dungeon Master with complete control over the campaign. You have FULL AUTHORITY to modify EVERYTHING:
+
+CURRENT GAME STATE:
+- Location: ${state.location}
+- In Combat: ${state.inCombat}
+- Enemies: ${JSON.stringify(state.enemies)}
+- World Time: Day ${state.worldTime.day}, Hour ${state.worldTime.hour}
+
+CHARACTER:
+- Name: ${char.name} (${char.race} ${char.class}, Level ${char.level})
+- HP: ${char.hp}/${char.maxHp}
+- AC: ${char.ac}
+- Stats: STR ${char.stats.strength}, DEX ${char.stats.dexterity}, CON ${char.stats.constitution}, INT ${char.stats.intelligence}, WIS ${char.stats.wisdom}, CHA ${char.stats.charisma}
+- Inventory: ${JSON.stringify(char.inventory.map(i => i.name))}
+- Currency: ${char.currency.gold}g, ${char.currency.silver}s, ${char.currency.copper}c, ${char.currency.platinum}p
+
+IMPORTANT CREATIVE GUIDELINES:
+❌ ABSOLUTELY FORBIDDEN NAMES - These names are BANNED and will be automatically rejected:
+   PRIMARY BLACKLIST: Elara, Lyra, Valerius, Thornwood, Ravencrest, Shadowmere, Silverwood, Aric, Thorne, Kael, Seraphina, Isolde, Morgana, Zephyr, Aria, Luna, Raven
+
+   SECONDARY BLACKLIST: Aldric, Cedric, Garreth, Alaric, Elowen, Althea, Evelyn, Lucian, Damien, Tristan, Adrian, Draven
+
+   BANNED PREFIXES: Never start names with Silver-, Shadow-, Raven-, Thorn-, Moon-, Dark-, Night-, Storm-, Iron-, Blood-
+
+✅ BE CREATIVE: Use original, memorable names! Examples:
+   - NPCs: Brynn, Cassian, Wylla, Torin, Mira, Garrick, Zara, Silas, Vex, Ashlyn, Corvin, Bexley, Grimm, Vera, Dorian
+   - Locations: Windmere, Copperdale, Ashbourne, Frostholm, Redbrook, Irongate, Saltmarsh
+
+CREATE NAMES BY: Combining unexpected elements, using hard consonants, mixing cultural influences creatively.
+AVOID: Obvious fantasy clichés, overused prefixes, melodramatic compound names.
+
+IF YOU USE ANY BLACKLISTED NAME, YOUR RESPONSE WILL BE REJECTED AND REGENERATED.
+
+You MUST respond with a JSON object:
+{
+  "narrative": "Your rich story response with formatting...",
+  "characterUpdates": {
+    "hp": ${char.hp},
+    "maxHp": ${char.maxHp},
+    "ac": ${char.ac},
+    "stats": { ... update any stat as needed ... },
+    "inventory": [ ... full updated inventory array ... ],
+    "currency": { "gold": X, "silver": Y, "copper": Z, "platinum": W }
+  },
+  "location": "Current location",
+  "inCombat": false,
+  "enemies": [ { "name": "...", "hp": X, "maxHp": Y, "ac": Z } ],
+  "currentTurn": null,
+  "worldTime": { "day": 1, "hour": 9 },
+  "quests": [ ... updated quest array ... ]
+}
+
+RULES:
+- Update character HP, AC, inventory, currency as events unfold
+- For inventory updates, return the FULL inventory array (add/remove items as appropriate)
+- Track time progression in worldTime
+- Manage combat state, enemies, and turn order
+- Create/update/complete quests as the story develops. Quest updates should reflect status changes:
+  * Set status to "completed" when the player finishes quest objectives
+  * Set status to "failed" if the player fails to meet quest requirements
+  * Keep status as "active" for ongoing quests
+- Use formatting: **bold**, *italic*, [red]color[/red], etc.
+
+Your ENTIRE response must be ONLY this JSON object.`;
+
+            try {
+                const aiResponse = await callAI(systemPrompt, action);
+                console.log('AI Action Response:', aiResponse);
+
+                // Sanitize any blacklisted names consistently across narrative, location, quests, enemies, items, and existing state
+                await sanitizeAIResponseNames(aiResponse, 'game action');
+
+                // Update character
+                if (aiResponse.characterUpdates) {
+                    const updates = aiResponse.characterUpdates;
+                    if (updates.hp !== undefined) char.hp = updates.hp;
+                    if (updates.maxHp !== undefined) char.maxHp = updates.maxHp;
+                    if (updates.ac !== undefined) char.ac = updates.ac;
+
+                    if (updates.stats) {
+                        char.stats = Object.assign({}, char.stats, updates.stats);
+                    }
+
+                    if (updates.inventory) {
+                        char.inventory = normalizeInventory(updates.inventory);
+                    }
+
+                    if (updates.currency) {
+                        char.currency = Object.assign({}, char.currency, updates.currency);
+                    }
+                }
+
+                // Update game state
+                if (aiResponse.location) state.location = aiResponse.location;
+                if (aiResponse.inCombat !== undefined) state.inCombat = aiResponse.inCombat;
+                if (Array.isArray(aiResponse.enemies)) state.enemies = aiResponse.enemies;
+                if (aiResponse.currentTurn !== undefined) state.currentTurn = aiResponse.currentTurn;
+
+                if (aiResponse.worldTime) {
+                    state.worldTime = aiResponse.worldTime;
+                } else {
+                    advanceWorldTime(1);
+                }
+
+                // Update quests
+                if (Array.isArray(aiResponse.quests)) {
+                    gameData.quests = aiResponse.quests;
+                }
+
+                                let narrative = aiResponse.narrative;
+
+                // Add DM response
+                gameData.messages.push({
+                    role: 'assistant',
+                    content: narrative
+                });
+
+                // Parse for quest offers
+                parseQuestOffers(narrative);
+
+                persistGame();
+
+                // Remove loading spinner and update UI
+                updateMessageLog();
+                updateCharacterSheet();
+                updateGameState();
+                updateRollHistory();
+
+            } catch (error) {
+                console.error('Error in AI response:', error);
+                gameData.messages.push({
+                    role: 'system',
+                    content: 'Error: Failed to get response from DM. Please try again.'
+                });
+                updateMessageLog();
+            }
+
+            document.getElementById('sendBtn').disabled = false;
+            document.getElementById('actionInput').disabled = false;
+        }
+
+        // =====================================================================
+        // SECTION 3 (CONT.): POINT BUY SYSTEM FOR CHARACTER CREATION
+        // =====================================================================
+
+        function getPointCost(newValue, oldValue) {
+            const costs = pointBuyState.pointCosts;
+            let cost = 0;
+
+            if (newValue > oldValue) {
+                for (let i = oldValue + 1; i <= newValue; i++) {
+                    cost += (costs[i] - costs[i - 1]);
+                }
+            } else {
+                for (let i = oldValue; i > newValue; i--) {
+                    cost -= (costs[i] - costs[i - 1]);
+                }
+            }
+
+            return cost;
+        }
+
+        function updateStatDisplay(statName) {
+            const value = pointBuyState[statName];
+            const displayEl = document.getElementById(`${statName}-display`);
+            const modifierEl = document.getElementById(`${statName}-modifier`);
+
+            if (!displayEl || !modifierEl) {
+                console.error('Could not find display elements for', statName);
+                return;
+            }
+
+            displayEl.textContent = value;
+            modifierEl.textContent = formatModifier(value);
+
+            // Update button states
+            const decreaseBtn = document.querySelector(`[data-stat="${statName}"][data-action="decrease"]`);
+            const increaseBtn = document.querySelector(`[data-stat="${statName}"][data-action="increase"]`);
+
+            if (decreaseBtn) decreaseBtn.disabled = value <= 8;
+            if (increaseBtn) increaseBtn.disabled = value >= 15 || pointBuyState.pointsRemaining <= 0;
+        }
+
+        function updatePointsRemaining() {
+            const pointsEl = document.getElementById('pointsRemaining');
+            if (!pointsEl) {
+                console.error('Could not find pointsRemaining element');
+                return;
+            }
+
+            pointsEl.textContent = pointBuyState.pointsRemaining;
+
+            // Update all increase buttons based on points
+            document.querySelectorAll('[data-action="increase"]').forEach(btn => {
+                const stat = btn.dataset.stat;
+                const currentValue = pointBuyState[stat];
+                if (currentValue < 15) {
+                    const costToIncrease = getPointCost(currentValue + 1, currentValue);
+                    btn.disabled = pointBuyState.pointsRemaining < costToIncrease;
+                }
+            });
+        }
+
+        function initializePointBuy() {
+            console.log('Initializing point buy system...');
+
+            const statButtons = document.querySelectorAll('.stat-btn');
+
+            if (statButtons.length === 0) {
+                console.error('No stat buttons found! Point buy UI may not be loaded.');
+                return;
+            }
+
+            console.log('Found', statButtons.length, 'stat buttons');
+
+            statButtons.forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+
+                    try {
+                        const stat = btn.dataset.stat;
+                        const action = btn.dataset.action;
+                        const currentValue = pointBuyState[stat];
+
+                        if (action === 'increase' && currentValue < 15) {
+                            const cost = getPointCost(currentValue + 1, currentValue);
+                            if (pointBuyState.pointsRemaining >= cost) {
+                                pointBuyState[stat] = currentValue + 1;
+                                pointBuyState.pointsRemaining -= cost;
+                                updateStatDisplay(stat);
+                                updatePointsRemaining();
+                            }
+                        } else if (action === 'decrease' && currentValue > 8) {
+                            const refund = getPointCost(currentValue, currentValue - 1);
+                            pointBuyState[stat] = currentValue - 1;
+                            pointBuyState.pointsRemaining += refund;
+                            updateStatDisplay(stat);
+                            updatePointsRemaining();
+                        }
+                    } catch (error) {
+                        console.error('Error in stat button click:', error);
+                    }
+                });
+            });
+
+            // Initialize all displays
+            const stats = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'];
+            stats.forEach(stat => {
+                try {
+                    updateStatDisplay(stat);
+                } catch (error) {
+                    console.error('Error updating stat display for', stat, ':', error);
+                }
+            });
+            updatePointsRemaining();
+
+            console.log('Point buy initialization complete');
+        }
+
+        // =====================================================================
+        // SECTION 6 (CONT.): EVENT LISTENERS & BOOTSTRAPPING
+        // =====================================================================
+        // Claude:
+        //   - These listeners glue the UI to the engine.
+        //   - If you add new buttons, wire them up here or near their section.
+
+        document.getElementById('apiForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+
+            // Validate form
+            if (!validateApiForm()) {
+                return;
+            }
+
+            try {
+                console.log('API form submitted');
+
+                gameData.apiConfig = {
+                    apiKey: document.getElementById('apiKey').value.trim(),
+                    baseURL: document.getElementById('baseURL').value.trim(),
+                    model: document.getElementById('model').value.trim()
+                };
+
+                localStorage.setItem('dnd_api_config', JSON.stringify(gameData.apiConfig));
+                console.log('API config saved to localStorage');
+
+                document.getElementById('apiSetup').classList.add('hidden');
+                document.getElementById('characterCreation').classList.remove('hidden');
+                console.log('Switched to character creation screen');
+
+                // Initialize point buy system when character creation shows
+                setTimeout(() => {
+                    try {
+                        initializePointBuy();
+                        console.log('Point buy initialized');
+                    } catch (error) {
+                        console.error('Error initializing point buy:', error);
+                    }
+                }, 100);
+
+            } catch (error) {
+                console.error('Error in API form submission:', error);
+                alert('Error saving API configuration. Please try again.');
+            }
         });
 
+        document.getElementById('characterForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+
+            // Validate form
+            if (!validateCharacterForm()) {
+                return;
+            }
+
+            const level = parseInt(document.getElementById('charLevel').value, 10);
+            const cls = document.getElementById('charClass').value;
+
+            // Use point buy stats instead of generated ones
+            const stats = {
+                strength: pointBuyState.strength,
+                dexterity: pointBuyState.dexterity,
+                constitution: pointBuyState.constitution,
+                intelligence: pointBuyState.intelligence,
+                wisdom: pointBuyState.wisdom,
+                charisma: pointBuyState.charisma
+            };
+
+            gameData.character = {
+                name: document.getElementById('charName').value.trim(),
+                race: document.getElementById('charRace').value,
+                class: cls,
+                level: level,
+                backstory: document.getElementById('charBackstory').value.trim(),
+                hp: 8 + level * 5,
+                maxHp: 8 + level * 5,
+                ac: 10 + Math.floor(level / 2),
+                stats: stats,
+                inventory: [],
+                currency: {
+                    gold: 0,
+                    silver: 0,
+                    copper: 0,
+                    platinum: 0
+                }
+            };
+
+            gameData.adventurePreferences = {
+                setting: document.getElementById('setting').value,
+                customStory: document.getElementById('customStory').value.trim(),
+                tone: document.getElementById('tone').value,
+                difficulty: document.getElementById('difficulty').value,
+                pacing: document.getElementById('pacing').value
+            };
+
+            localStorage.setItem('dnd_character', JSON.stringify(gameData.character));
+            localStorage.setItem('dnd_adventure_prefs', JSON.stringify(gameData.adventurePreferences));
+
+            document.getElementById('characterCreation').classList.add('hidden');
+            document.getElementById('initScreen').classList.remove('hidden');
+            generateOpening();
+        });
+
+        document.getElementById('sendBtn').addEventListener('click', () => {
+            const input = document.getElementById('actionInput');
+            const action = input.value.trim();
+            if (action) {
+                input.value = '';
+                sendAction(action);
+            }
+        });
+
+        document.getElementById('actionInput').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                document.getElementById('sendBtn').click();
+            }
+        });
+
+        document.getElementById('rollD20Btn').addEventListener('click', () => {
+            const result = rollExpression('1d20', 'normal');
+            if (result.error) return;
+            gameData.messages.push({
+                role: 'system',
+                content: `You roll a d20: ${result.rolls[0]}`
+            });
+
+            // Add to roll history
+            gameData.rollHistory.unshift({
+                type: 'D20 Roll',
+                result: result.rolls[0],
+                rolls: result.rolls,
+                modifier: 0,
+                advantageMode: 'normal',
+                timestamp: new Date().toISOString()
+            });
+            if (gameData.rollHistory.length > 20) {
+                gameData.rollHistory = gameData.rollHistory.slice(0, 20);
+            }
+
+            updateMessageLog();
+            updateRollHistory();
+            persistGame();
+        });
+
+        document.getElementById('rollAdvBtn').addEventListener('click', () => {
+            const result = rollExpression('1d20', 'advantage');
+            if (result.error) return;
+            gameData.messages.push({
+                role: 'system',
+                content: `You roll a d20 with Advantage: rolled ${result.rolls[0]} and ${result.rolls[1]}, chose ${result.chosenRoll}`
+            });
+
+            // Add to roll history
+            gameData.rollHistory.unshift({
+                type: 'D20 Roll',
+                result: result.chosenRoll,
+                rolls: result.rolls,
+                modifier: 0,
+                advantageMode: 'advantage',
+                timestamp: new Date().toISOString()
+            });
+            if (gameData.rollHistory.length > 20) {
+                gameData.rollHistory = gameData.rollHistory.slice(0, 20);
+            }
+
+            updateMessageLog();
+            updateRollHistory();
+            persistGame();
+        });
+
+        document.getElementById('rollDisBtn').addEventListener('click', () => {
+            const result = rollExpression('1d20', 'disadvantage');
+            if (result.error) return;
+            gameData.messages.push({
+                role: 'system',
+                content: `You roll a d20 with Disadvantage: rolled ${result.rolls[0]} and ${result.rolls[1]}, chose ${result.chosenRoll}`
+            });
+
+            // Add to roll history
+            gameData.rollHistory.unshift({
+                type: 'D20 Roll',
+                result: result.chosenRoll,
+                rolls: result.rolls,
+                modifier: 0,
+                advantageMode: 'disadvantage',
+                timestamp: new Date().toISOString()
+            });
+            if (gameData.rollHistory.length > 20) {
+                gameData.rollHistory = gameData.rollHistory.slice(0, 20);
+            }
+
+            updateMessageLog();
+            updateRollHistory();
+            persistGame();
+        });
+
+        document.getElementById('perceptionBtn').addEventListener('click', () => {
+            performSkillCheck('perception');
+            const input = document.getElementById('actionInput');
+            input.value = 'I look around carefully.';
+            input.focus();
+        });
+
+        document.getElementById('itemModalClose').addEventListener('click', () => {
+            document.getElementById('itemModal').classList.add('hidden');
+        });
+
+        document.getElementById('itemModal').addEventListener('click', (e) => {
+            if (e.target.id === 'itemModal') {
+                document.getElementById('itemModal').classList.add('hidden');
+            }
+        });
+
+        document.getElementById('questModalClose').addEventListener('click', () => {
+            document.getElementById('questModal').classList.add('hidden');
+        });
+
+        document.getElementById('questModal').addEventListener('click', (e) => {
+            if (e.target.id === 'questModal') {
+                document.getElementById('questModal').classList.add('hidden');
+            }
+        });
+
+        // Help modal
+        document.getElementById('helpBtn')?.addEventListener('click', () => {
+            document.getElementById('helpModal').classList.remove('hidden');
+        });
+
+        document.getElementById('helpModalClose').addEventListener('click', () => {
+            document.getElementById('helpModal').classList.add('hidden');
+        });
+
+        document.getElementById('helpModal').addEventListener('click', (e) => {
+            if (e.target.id === 'helpModal') {
+                document.getElementById('helpModal').classList.add('hidden');
+            }
+        });
+
+        // Save menu
+        document.getElementById('saveMenuBtn').addEventListener('click', () => {
+            document.getElementById('saveMenu').classList.toggle('hidden');
+        });
+
+        document.getElementById('exportBtn').addEventListener('click', () => {
+            const dataToSave = {
+                character: gameData.character,
+                gameState: gameData.gameState,
+                adventurePreferences: gameData.adventurePreferences,
+                messages: gameData.messages,
+                quests: gameData.quests,
+                questOffers: gameData.questOffers,
+                rollHistory: gameData.rollHistory,
+                hasOpening: gameData.hasOpening,
+                timestamp: new Date().toISOString()
+            };
+
+            const blob = new Blob([JSON.stringify(dataToSave, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `dnd-save-${gameData.character ? gameData.character.name : 'character'}-${Date.now()}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            document.getElementById('saveMenu').classList.add('hidden');
+        });
+
+        document.getElementById('importBtn').addEventListener('click', () => {
+            document.getElementById('importFile').click();
+            document.getElementById('saveMenu').classList.add('hidden');
+        });
+
+        document.getElementById('importFile').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                try {
+                    const imported = JSON.parse(evt.target.result);
+                    gameData.character = imported.character;
+                    gameData.gameState = Object.assign({}, gameData.gameState, imported.gameState || {});
+                    gameData.adventurePreferences = imported.adventurePreferences || null;
+                    gameData.messages = imported.messages || [];
+                    gameData.quests = imported.quests || [];
+                    gameData.questOffers = imported.questOffers || [];
+                    gameData.rollHistory = imported.rollHistory || [];
+                    gameData.hasOpening = !!imported.hasOpening;
+                    persistGame();
+                    alert('Game loaded successfully!');
+                    location.reload();
+                } catch (error) {
+                    alert('Error loading save file. Please make sure it\'s a valid save file.');
+                    console.error('Import error:', error);
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        document.getElementById('newGameBtn').addEventListener('click', () => {
+            if (confirm('Are you sure you want to start a new game? Current progress will be lost.')) {
+                localStorage.clear();
+                location.reload();
+            }
+        });
+
+        // Reset API Key functionality
+        function resetApiKey() {
+            if (confirm('Are you sure you want to reset your API key? You will need to re-enter your API credentials.')) {
+                // Only clear the API config, preserve other data
+                localStorage.removeItem('dnd_api_config');
+                location.reload();
+            }
+        }
+
+        // Add event listeners for reset API key buttons
+        const resetApiKeyCharScreenBtn = document.getElementById('resetApiKeyCharScreen');
+        if (resetApiKeyCharScreenBtn) {
+            resetApiKeyCharScreenBtn.addEventListener('click', resetApiKey);
+        }
+
+        const resetApiKeyInitScreenBtn = document.getElementById('resetApiKeyInitScreen');
+        if (resetApiKeyInitScreenBtn) {
+            resetApiKeyInitScreenBtn.addEventListener('click', resetApiKey);
+        }
+
+        const resetApiKeyGameScreenBtn = document.getElementById('resetApiKeyGameScreen');
+        if (resetApiKeyGameScreenBtn) {
+            resetApiKeyGameScreenBtn.addEventListener('click', resetApiKey);
+        }
+
+        // =====================================================================
+        // NEW FEATURES: AUTO-SAVE, SEARCH, KEYBOARD SHORTCUTS
+        // =====================================================================
+
+        // Auto-save functionality
+        let autoSaveTimer = null;
+        function showAutoSaveIndicator() {
+            const indicator = document.getElementById('autoSaveIndicator');
+            indicator.classList.add('show');
+            setTimeout(() => {
+                indicator.classList.remove('show');
+            }, 2000);
+        }
+
+        function scheduleAutoSave() {
+            if (autoSaveTimer) clearTimeout(autoSaveTimer);
+            autoSaveTimer = setTimeout(() => {
+                persistGame();
+                showAutoSaveIndicator();
+            }, 30000); // Auto-save every 30 seconds
+        }
+
+        // Start auto-save when game begins
+        function startAutoSave() {
+            scheduleAutoSave();
+            // Also save on every major action
+            const originalSendAction = sendAction;
+            window.sendAction = async function(action) {
+                await originalSendAction(action);
+                scheduleAutoSave();
+            };
+        }
+
+        // Inventory search functionality
+        let inventorySearchTimeout = null;
+        document.getElementById('inventorySearch')?.addEventListener('input', (e) => {
+            clearTimeout(inventorySearchTimeout);
+            inventorySearchTimeout = setTimeout(() => {
+                const searchTerm = e.target.value.toLowerCase().trim();
+                filterInventory(searchTerm);
+            }, 300);
+        });
+
+        function filterInventory(searchTerm) {
+            const char = gameData.character;
+            if (!char || !char.inventory) return;
+
+            const inventoryList = document.getElementById('inventoryList');
+            const inv = char.inventory;
+
+            if (inv.length === 0) {
+                inventoryList.innerHTML = '<p style="font-size: 0.875rem; color: var(--slate-400); text-align: center; padding: 1rem;">No items yet</p>';
+                return;
+            }
+
+            const filteredItems = searchTerm
+                ? inv.filter(item => item && item.name && item.name.toLowerCase().includes(searchTerm))
+                : inv;
+
+            if (filteredItems.length === 0) {
+                inventoryList.innerHTML = '<p style="font-size: 0.875rem; color: var(--slate-400); text-align: center; padding: 1rem;">No matching items found</p>';
+                return;
+            }
+
+            inventoryList.innerHTML = '';
+            filteredItems.forEach((item) => {
+                const originalIndex = inv.indexOf(item);
+                if (!item || !item.name) return;
+
+                const rarityClass = item.rarity ? `rarity-${item.rarity.toLowerCase().replace(/\s+/g, '')}` : 'rarity-common';
+
+                const itemDiv = document.createElement('div');
+                itemDiv.className = `inventory-item ${rarityClass}`;
+                itemDiv.style.cursor = 'pointer';
+                itemDiv.setAttribute('role', 'listitem');
+                itemDiv.setAttribute('tabindex', '0');
+                itemDiv.setAttribute('aria-label', `${item.name}, ${item.rarity || 'common'} rarity`);
+
+                itemDiv.addEventListener('click', () => showItemModal(originalIndex));
+                itemDiv.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        showItemModal(originalIndex);
+                    }
+                });
+
+                let itemName = item.name;
+                if (searchTerm) {
+                    // Highlight search term
+                    const regex = new RegExp(`(${searchTerm})`, 'gi');
+                    itemName = itemName.replace(regex, '<span class="search-highlight">$1</span>');
+                }
+
+                itemDiv.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <p style="font-weight: 500;">${itemName}</p>
+                            ${item.quantity && item.quantity > 1 ? `<p style="font-size: 0.75rem; color: var(--slate-400);">Quantity: ${item.quantity}</p>` : ''}
+                        </div>
+                        ${item.rarity ? `<span class="badge badge-rarity">${escapeHtml(item.rarity)}</span>` : ''}
+                    </div>
+                `;
+
+                inventoryList.appendChild(itemDiv);
+            });
+        }
+
+        // Global keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            // Don't trigger shortcuts when typing in inputs
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+                // Except for the '/' key to focus search
+                if (e.key === '/' && e.target.id !== 'inventorySearch') {
+                    e.preventDefault();
+                    document.getElementById('inventorySearch')?.focus();
+                }
+                return;
+            }
+
+            // Keyboard shortcuts
+            switch(e.key.toLowerCase()) {
+                case '/':
+                    e.preventDefault();
+                    document.getElementById('inventorySearch')?.focus();
+                    break;
+                case '?':
+                    e.preventDefault();
+                    document.getElementById('helpModal')?.classList.remove('hidden');
+                    break;
+                case 'r':
+                    if (e.ctrlKey || e.metaKey) break; // Don't interfere with refresh
+                    e.preventDefault();
+                    document.getElementById('rollD20Btn')?.click();
+                    break;
+                case 'p':
+                    e.preventDefault();
+                    document.getElementById('perceptionBtn')?.click();
+                    break;
+                case 'escape':
+                case 'esc':
+                    // Close any open modals
+                    document.getElementById('itemModal')?.classList.add('hidden');
+                    document.getElementById('questModal')?.classList.add('hidden');
+                    document.getElementById('helpModal')?.classList.add('hidden');
+                    break;
+            }
+        });
+
+        // Input validation for forms
+        function validateApiForm() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const baseURL = document.getElementById('baseURL').value.trim();
+
+            if (!apiKey || apiKey.length < 10) {
+                alert('Please enter a valid API key (at least 10 characters).');
+                return false;
+            }
+
+            if (baseURL && !baseURL.startsWith('http')) {
+                alert('Base URL must start with http:// or https://');
+                return false;
+            }
+
+            return true;
+        }
+
+        function validateCharacterForm() {
+            const name = document.getElementById('charName').value.trim();
+            const backstory = document.getElementById('charBackstory').value.trim();
+
+            if (!name || name.length < 2) {
+                alert('Character name must be at least 2 characters long.');
+                return false;
+            }
+
+            if (name.length > 50) {
+                alert('Character name must be less than 50 characters.');
+                return false;
+            }
+
+            if (!backstory || backstory.length < 20) {
+                alert('Backstory must be at least 20 characters long to help the AI generate appropriate starting equipment.');
+                return false;
+            }
+
+            // Check if all points are spent
+            if (pointBuyState.pointsRemaining > 0) {
+                if (!confirm(`You have ${pointBuyState.pointsRemaining} unspent points. Continue anyway?`)) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        // Bootstrapping
+        console.log('Starting bootstrap...');
+
+        try {
+            loadSavedData();
+            console.log('Loaded saved data. API config:', !!gameData.apiConfig, 'Character:', !!gameData.character, 'Has opening:', gameData.hasOpening);
+
+            if (!gameData.apiConfig) {
+                console.log('No API config - showing API setup screen');
+                document.getElementById('apiSetup').classList.remove('hidden');
+            } else if (!gameData.character) {
+                console.log('API config exists but no character - showing character creation');
+                document.getElementById('apiSetup').classList.add('hidden');
+                document.getElementById('characterCreation').classList.remove('hidden');
+                // Initialize point buy if going straight to character creation
+                setTimeout(() => {
+                    try {
+                        initializePointBuy();
+                    } catch (error) {
+                        console.error('Error initializing point buy in bootstrap:', error);
+                    }
+                }, 100);
+            } else if (!gameData.hasOpening) {
+                console.log('Character exists but no opening - generating opening');
+                document.getElementById('apiSetup').classList.add('hidden');
+                document.getElementById('initScreen').classList.remove('hidden');
+                generateOpening();
+            } else {
+                console.log('Full game state exists - loading game screen');
+                document.getElementById('apiSetup').classList.add('hidden');
+                document.getElementById('gameScreen').classList.remove('hidden');
+                updateCharacterSheet();
+                updateGameState();
+                updateMessageLog();
+                updateRollHistory();
+                // Start auto-save for active games
+                startAutoSave();
+            }
+        } catch (error) {
+            console.error('Error during bootstrap:', error);
+            // Show API setup as fallback
+            document.getElementById('apiSetup').classList.remove('hidden');
+        }
+
+        console.log('Bootstrap complete');
     </script>
 </body>
 </html>
